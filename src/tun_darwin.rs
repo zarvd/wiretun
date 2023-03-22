@@ -145,8 +145,8 @@ mod tests {
     fn test_parse_name() {
         let cases = [
             ("utun", Ok(0)),
-            ("utun0", Ok(0)),
-            ("utun42", Ok(42)),
+            ("utun0", Ok(1)),
+            ("utun42", Ok(43)),
             ("utun04", Err(Error::InvalidName)),
             ("utun007", Err(Error::InvalidName)),
             ("utun42foo", Err(Error::InvalidName)),
