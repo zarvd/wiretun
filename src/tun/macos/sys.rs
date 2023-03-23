@@ -85,6 +85,16 @@ impl ifreq {
     }
 }
 
+pub unsafe fn set_nonblocking(fd: RawFd) -> Result<(), io::Error> {
+    match unsafe { libc::fcntl(fd, libc::F_GETFL) } {
+        -1 => Err(io::Error::last_os_error()),
+        flags => match unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } {
+            -1 => Err(io::Error::last_os_error()),
+            _ => Ok(()),
+        },
+    }
+}
+
 pub unsafe fn get_iface_name(fd: RawFd) -> Result<String, io::Error> {
     const MAX_LEN: usize = 256;
     let mut name = [0u8; MAX_LEN];

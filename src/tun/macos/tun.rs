@@ -3,6 +3,7 @@ use std::mem::{size_of, size_of_val};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
 use regex::Regex;
+use tokio::io::unix::AsyncFd;
 
 use super::sys;
 
@@ -22,7 +23,7 @@ fn parse_name(name: &str) -> Result<u32, Error> {
 }
 
 pub struct Tun {
-    fd: OwnedFd,
+    fd: AsyncFd<OwnedFd>,
     name: String,
 }
 
@@ -37,12 +38,11 @@ impl Tun {
             fd => unsafe { OwnedFd::from_raw_fd(fd) },
         };
 
-        let mut info = libc::ctl_info {
+        let info = libc::ctl_info {
             ctl_id: 0,
             ctl_name: sys::CTRL_NAME,
         };
-
-        if unsafe { libc::ioctl(fd.as_raw_fd(), libc::CTLIOCGINFO, &mut info) } < 0 {
+        if unsafe { libc::ioctl(fd.as_raw_fd(), libc::CTLIOCGINFO, &info) } < 0 {
             return Err(io::Error::last_os_error().into());
         }
 
@@ -54,7 +54,6 @@ impl Tun {
             sc_unit: idx,
             sc_reserved: Default::default(),
         };
-
         if unsafe {
             libc::connect(
                 fd.as_raw_fd(),
@@ -67,6 +66,7 @@ impl Tun {
         }
 
         let name = unsafe { sys::get_iface_name(fd.as_raw_fd()) }?;
+        let fd = AsyncFd::new(fd)?;
 
         Ok(Self { fd, name })
     }
@@ -81,7 +81,7 @@ impl Tun {
         Ok(())
     }
 
-    pub fn mtu(&mut self) -> Result<u16, Error> {
+    pub fn mtu(&self) -> Result<u16, Error> {
         let req = sys::ifreq::new(&self.name);
         if unsafe { libc::ioctl(self.fd.as_raw_fd(), sys::SIOCGIFMTU, &req) } < 0 {
             return Err(io::Error::last_os_error().into());

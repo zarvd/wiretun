@@ -16,10 +16,14 @@ edition = "2021"
 anyhow = "1.0"
 thiserror = "1.0"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.7"
 tokio = { version = "1.26", features = ["full"] }
 chacha20poly1305 = "0.10"
 libc = "0.2"
 regex = "1"
+bytes = "1.4"
+x25519-dalek = { version = "2.0.0-pre.1", features = ["reusable_secrets"] }
+blake2 = "0.10"
+hmac = "0.12"
+chrono = { version = "0.4" }
