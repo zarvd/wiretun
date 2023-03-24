@@ -1,7 +1,7 @@
 use bytes::{BufMut, BytesMut};
-use x25519_dalek::{PublicKey, ReusableSecret, StaticSecret};
+use x25519_dalek::{PublicKey, ReusableSecret};
 
-use super::{CONSTRUCTION, IDENTIFIER, LABEL_MAC1};
+use super::{StaticKeyPair, CONSTRUCTION, IDENTIFIER, LABEL_MAC1};
 use crate::noise::{
     crypto::{aead_decrypt, aead_encrypt, gen_ephemeral_key, hash, kdf1, kdf2, mac},
     timestamp::Timestamp,
@@ -19,36 +19,37 @@ pub struct OutgoingInitiation {
 }
 
 impl OutgoingInitiation {
-    pub fn new(
-        sender_index: u32,
-        local_cert: (StaticSecret, PublicKey),
-        peer_static_pub: PublicKey,
-    ) -> (Self, Vec<u8>) {
+    pub fn new(sender_index: u32, skp: &StaticKeyPair) -> (Self, Vec<u8>) {
         let mut buf = BytesMut::with_capacity(PACKET_SIZE);
 
         buf.put_u32_le(MESSAGE_TYPE_HANDSHAKE_INITIATION as _);
         buf.put_u32_le(sender_index);
 
         let c = hash(&CONSTRUCTION, b"");
-        let h = hash(&hash(&c, &IDENTIFIER), peer_static_pub.as_bytes());
+        let h = hash(&hash(&c, &IDENTIFIER), skp.peer_public.as_bytes());
         let (ephemeral_pri, ephemeral_pub) = gen_ephemeral_key();
         let c = kdf1(ephemeral_pub.as_bytes(), &c);
         buf.put_slice(ephemeral_pub.as_bytes()); // 32 bytes
         let h = hash(&h, ephemeral_pub.as_bytes());
         let (c, k) = kdf2(
-            ephemeral_pri.diffie_hellman(&peer_static_pub).as_bytes(),
+            ephemeral_pri.diffie_hellman(&skp.peer_public).as_bytes(),
             &c,
         );
-        let static_key = aead_encrypt(&k, 0, local_cert.1.as_bytes(), &h).unwrap();
+        let static_key = aead_encrypt(&k, 0, skp.local_public.as_bytes(), &h).unwrap();
         buf.put_slice(&static_key); // 32 + 16 bytes
         let h = hash(&h, &static_key);
-        let (c, k) = kdf2(&c, local_cert.0.diffie_hellman(&peer_static_pub).as_bytes());
+        let (c, k) = kdf2(
+            &c,
+            skp.local_private
+                .diffie_hellman(&skp.peer_public)
+                .as_bytes(),
+        );
         let timestamp = aead_encrypt(&k, 0, Timestamp::now().as_bytes(), &h).unwrap();
         buf.put_slice(&timestamp); // 12 + 16 bytes
         let h = hash(&h, &timestamp);
 
         // mac1 and mac2
-        let mac1 = mac(&hash(&LABEL_MAC1, local_cert.1.as_bytes()), &buf);
+        let mac1 = mac(&hash(&LABEL_MAC1, skp.local_public.as_bytes()), &buf);
         buf.put_slice(&mac1); // 16 bytes
         let mac2 = [0u8; 16]; // TODO: calculate with cookie
         buf.put_slice(&mac2); // 16 bytes
@@ -103,29 +104,32 @@ pub struct IncomingInitiation {
 }
 
 impl IncomingInitiation {
-    pub fn parse(
-        local_cert: (StaticSecret, PublicKey),
-        peer_static_pub: PublicKey,
-        payload: &[u8],
-    ) -> Result<Self, Error> {
+    pub fn parse(skp: &StaticKeyPair, payload: &[u8]) -> Result<Self, Error> {
         let packet = Packet::parse(payload)?;
 
         let c = hash(&CONSTRUCTION, b"");
-        let h = hash(&hash(&c, &IDENTIFIER), local_cert.1.as_bytes());
+        let h = hash(&hash(&c, &IDENTIFIER), skp.local_public.as_bytes());
         let peer_ephemeral_pub = PublicKey::from(packet.ephemeral_pub);
         let c = kdf1(&packet.ephemeral_pub, &c);
         let h = hash(&h, &packet.ephemeral_pub);
         let (c, k) = kdf2(
-            local_cert.0.diffie_hellman(&peer_ephemeral_pub).as_bytes(),
+            skp.local_private
+                .diffie_hellman(&peer_ephemeral_pub)
+                .as_bytes(),
             &c,
         );
         let static_key = aead_decrypt(&k, 0, &packet.static_key, &h)?;
-        if static_key != peer_static_pub.as_bytes() {
+        if static_key != skp.peer_public.as_bytes() {
             return Err(Error::WrongPeerStaticKey);
         }
 
         let h = hash(&h, &packet.static_key);
-        let (c, k) = kdf2(&c, local_cert.0.diffie_hellman(&peer_static_pub).as_bytes());
+        let (c, k) = kdf2(
+            &c,
+            skp.local_private
+                .diffie_hellman(&skp.peer_public)
+                .as_bytes(),
+        );
         let timestamp = aead_decrypt(&k, 0, &packet.timestamp, &h)?;
         // TODO: check if timestamp is after the last one
         let h = hash(&h, &packet.timestamp);

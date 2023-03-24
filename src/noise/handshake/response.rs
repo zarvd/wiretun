@@ -1,9 +1,10 @@
 use bytes::{BufMut, BytesMut};
-use x25519_dalek::{PublicKey, ReusableSecret, StaticSecret};
+use x25519_dalek::{PublicKey, ReusableSecret};
 
 use super::{IncomingInitiation, OutgoingInitiation, LABEL_MAC1};
 use crate::noise::{
     crypto::{aead_decrypt, aead_encrypt, gen_ephemeral_key, hash, kdf1, kdf3, mac},
+    handshake::StaticKeyPair,
     Error,
 };
 
@@ -19,9 +20,7 @@ pub struct OutgoingResponse {
 impl OutgoingResponse {
     pub fn new(
         local_index: u32,
-        local_static: (StaticSecret, PublicKey),
-        peer_static_pub: PublicKey,
-        preshared_key: [u8; 32],
+        skp: &StaticKeyPair,
         initiation: IncomingInitiation,
     ) -> (Self, Vec<u8>) {
         let mut buf = BytesMut::with_capacity(PACKET_SIZE);
@@ -40,17 +39,17 @@ impl OutgoingResponse {
             &c,
         );
         let c = kdf1(
-            ephemeral_pri.diffie_hellman(&peer_static_pub).as_bytes(),
+            ephemeral_pri.diffie_hellman(&skp.peer_public).as_bytes(),
             &c,
         );
-        let (c, t, k) = kdf3(&preshared_key, &c);
+        let (c, t, k) = kdf3(&skp.psk, &c);
         let h = hash(&h, &t);
         let empty = aead_encrypt(&k, 0, &[], &h).unwrap();
         buf.put_slice(&empty); // 16 bytes
         let h = hash(&h, &empty);
 
         // mac1 and mac2
-        let mac1 = mac(&hash(&LABEL_MAC1, &local_static.1.to_bytes()), &buf);
+        let mac1 = mac(&hash(&LABEL_MAC1, skp.local_public.as_bytes()), &buf);
         buf.put_slice(&mac1); // 16 bytes
         let mac2 = [0u8; 16]; // TODO: calculate with cookie
         buf.put_slice(&mac2); // 16 bytes
@@ -106,8 +105,7 @@ pub struct IncomingResponse {
 impl IncomingResponse {
     pub fn parse(
         initiation: OutgoingInitiation,
-        local_static: (StaticSecret, PublicKey),
-        preshared_key: [u8; 32],
+        skp: &StaticKeyPair,
         payload: &[u8],
     ) -> Result<Self, Error> {
         let packet = Packet::parse(payload)?;
@@ -123,13 +121,12 @@ impl IncomingResponse {
             &c,
         );
         let c = kdf1(
-            local_static
-                .0
+            skp.local_private
                 .diffie_hellman(&peer_ephemeral_pub)
                 .as_bytes(),
             &c,
         );
-        let (c, t, k) = kdf3(&preshared_key, &c);
+        let (c, t, k) = kdf3(&skp.psk, &c);
         let h = hash(&h, &t);
         let empty = aead_decrypt(&k, 0, &packet.empty, &h)?;
         if !empty.is_empty() {
