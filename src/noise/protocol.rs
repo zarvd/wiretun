@@ -121,11 +121,10 @@ pub struct PeerHandshakeInitiation {
 
 impl PeerHandshakeInitiation {
     pub fn parse(
-        data: Vec<u8>,
         local_cert: (StaticSecret, PublicKey),
         peer_static_pub: PublicKey,
         packet: HandshakeInitiationPacket,
-    ) -> Result<(Self, Vec<u8>), Error> {
+    ) -> Result<Self, Error> {
         let ci = hash(&CONSTRUCTION, b"");
         let hi = hash(&hash(&ci, &IDENTIFIER), local_cert.1.as_bytes());
         let peer_ephemeral_pub = PublicKey::from(packet.ephemeral_pub);
@@ -142,7 +141,13 @@ impl PeerHandshakeInitiation {
             local_cert.0.diffie_hellman(&peer_static_pub).as_bytes(),
         );
         let timestamp = aead_decrypt(&k, 0, &packet.timestamp, &hi)?;
-        Err(Error::InvalidKeyLength) // TODO
+        let hi = hash(&hi, &packet.timestamp);
+        Ok(Self {
+            index: packet.sender_index,
+            hash: hi,
+            chaining_key: ci,
+            ephemeral_public_key: peer_ephemeral_pub,
+        })
     }
 }
 
@@ -217,4 +222,38 @@ pub struct TransportData {
     pub receiver_index: u32,
     pub counter: u64,
     pub packet: Bytes,
+}
+
+#[cfg(test)]
+mod tests {
+    use rand_core::OsRng;
+    use x25519_dalek::{PublicKey, StaticSecret};
+
+    use super::*;
+
+    #[test]
+    fn handshake_initiation() {
+        let (local_pri, local_pub) = {
+            let pri_key = StaticSecret::new(OsRng);
+            let pub_key = PublicKey::from(&pri_key);
+            (pri_key, pub_key)
+        };
+        let (peer_pri, peer_pub) = {
+            let pri_key = StaticSecret::new(OsRng);
+            let pub_key = PublicKey::from(&pri_key);
+            (pri_key, pub_key)
+        };
+
+        let sender_index = 42;
+
+        let initiation = HandshakeInitiation::new(sender_index, (local_pri, local_pub), peer_pub);
+
+        let packet = HandshakeInitiationPacket::try_parse(&initiation.payload).unwrap();
+
+        assert_eq!(packet.sender_index, sender_index);
+
+        let peer = PeerHandshakeInitiation::parse((peer_pri, peer_pub), local_pub, packet).unwrap();
+
+        assert_eq!(peer.index, sender_index);
+    }
 }
