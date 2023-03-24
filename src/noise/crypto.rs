@@ -2,13 +2,14 @@ use blake2::{
     digest::{FixedOutput, Mac, Update},
     Blake2s256, Blake2sMac, Digest,
 };
-use chacha20poly1305::aead::Aead;
 use rand_core::OsRng;
-use x25519_dalek::{EphemeralSecret, PublicKey};
+use x25519_dalek::{PublicKey, ReusableSecret};
+
+use super::Error;
 
 #[inline]
-pub fn gen_ephemeral_key() -> (EphemeralSecret, PublicKey) {
-    let secret = EphemeralSecret::new(OsRng);
+pub fn gen_ephemeral_key() -> (ReusableSecret, PublicKey) {
+    let secret = ReusableSecret::new(OsRng);
     let public = PublicKey::from(&secret);
     (secret, public)
 }
@@ -71,7 +72,7 @@ pub fn kdf3(key: &[u8], in0: &[u8]) -> ([u8; 32], [u8; 32], [u8; 32]) {
 }
 
 #[inline]
-pub fn aead_encrypt(key: &[u8], counter: u64, msg: &[u8], aad: &[u8]) -> Vec<u8> {
+pub fn aead_encrypt(key: &[u8], counter: u64, msg: &[u8], aad: &[u8]) -> Result<Vec<u8>, Error> {
     use chacha20poly1305::aead::{Aead, Payload};
     use chacha20poly1305::{KeyInit, Nonce};
     let nonce = {
@@ -80,14 +81,16 @@ pub fn aead_encrypt(key: &[u8], counter: u64, msg: &[u8], aad: &[u8]) -> Vec<u8>
         nonce
     };
 
-    chacha20poly1305::ChaCha20Poly1305::new_from_slice(key)
-        .unwrap()
+    let cipher = chacha20poly1305::ChaCha20Poly1305::new_from_slice(key)
+        .map_err(|_| Error::InvalidKeyLength)?;
+    let rv = cipher
         .encrypt(Nonce::from_slice(&nonce), Payload { msg, aad })
-        .unwrap()
+        .map_err(|e| Error::Encryption(e))?;
+    Ok(rv)
 }
 
 #[inline]
-pub fn aead_decrypt(key: &[u8], counter: u64, msg: &[u8], aad: &[u8]) -> Vec<u8> {
+pub fn aead_decrypt(key: &[u8], counter: u64, msg: &[u8], aad: &[u8]) -> Result<Vec<u8>, Error> {
     use chacha20poly1305::aead::{Aead, Payload};
     use chacha20poly1305::{KeyInit, Nonce};
     let nonce = {
@@ -95,30 +98,37 @@ pub fn aead_decrypt(key: &[u8], counter: u64, msg: &[u8], aad: &[u8]) -> Vec<u8>
         nonce[4..].copy_from_slice(&counter.to_le_bytes());
         nonce
     };
-    chacha20poly1305::ChaCha20Poly1305::new_from_slice(key)
-        .unwrap()
+    let cipher = chacha20poly1305::ChaCha20Poly1305::new_from_slice(key)
+        .map_err(|_| Error::InvalidKeyLength)?;
+    let rv = cipher
         .decrypt(Nonce::from_slice(&nonce), Payload { msg, aad })
-        .unwrap()
+        .map_err(|e| Error::Encryption(e))?;
+    Ok(rv)
 }
 
 #[inline]
-pub fn xaead_encrypt(key: &[u8], nonce: &[u8], msg: &[u8], aad: &[u8]) -> Vec<u8> {
+pub fn xaead_encrypt(key: &[u8], nonce: &[u8], msg: &[u8], aad: &[u8]) -> Result<Vec<u8>, Error> {
     use chacha20poly1305::aead::{Aead, Payload};
     use chacha20poly1305::{KeyInit, XNonce};
-    chacha20poly1305::XChaCha20Poly1305::new_from_slice(key)
-        .unwrap()
+    let cipher = chacha20poly1305::XChaCha20Poly1305::new_from_slice(key)
+        .map_err(|_| Error::InvalidKeyLength)?;
+    let rv = cipher
         .encrypt(XNonce::from_slice(nonce), Payload { msg, aad })
-        .unwrap()
+        .map_err(|e| Error::Encryption(e))?;
+    Ok(rv)
 }
 
 #[inline]
-pub fn xaead_decrypt(key: &[u8], nonce: &[u8], msg: &[u8], aad: &[u8]) -> Vec<u8> {
+pub fn xaead_decrypt(key: &[u8], nonce: &[u8], msg: &[u8], aad: &[u8]) -> Result<Vec<u8>, Error> {
     use chacha20poly1305::aead::{Aead, Payload};
     use chacha20poly1305::{KeyInit, XNonce};
-    chacha20poly1305::XChaCha20Poly1305::new_from_slice(key)
-        .unwrap()
+    let cipher = chacha20poly1305::XChaCha20Poly1305::new_from_slice(key)
+        .map_err(|_| Error::InvalidKeyLength)?;
+
+    let rv = cipher
         .decrypt(XNonce::from_slice(nonce), Payload { msg, aad })
-        .unwrap()
+        .map_err(|e| Error::Encryption(e))?;
+    Ok(rv)
 }
 
 #[cfg(test)]
@@ -214,12 +224,12 @@ mod tests {
         let aad = b"fedcba9876543210";
         let data = b"foobar";
         let counter = 42;
-        let encrypted = aead_encrypt(key, counter, data, aad);
+        let encrypted = aead_encrypt(key, counter, data, aad).unwrap();
         assert_eq!(
             "3b97d40eb9a5a78385054b7be7027c9661a2031f4f91",
             encode_hex(&encrypted),
         );
-        let decrypted = aead_decrypt(key, counter, &encrypted, aad);
+        let decrypted = aead_decrypt(key, counter, &encrypted, aad).unwrap();
         assert_eq!(data, &decrypted[..]);
     }
 
@@ -229,12 +239,12 @@ mod tests {
         let aad = b"fedcba9876543210";
         let data = b"foobar";
         let nonce = b"0123456789abcdef01234567";
-        let encrypted = xaead_encrypt(key, nonce, data, aad);
+        let encrypted = xaead_encrypt(key, nonce, data, aad).unwrap();
         assert_eq!(
             "2f8312b423a80a32585bcf059fbcfeee8063d258f030",
             encode_hex(&encrypted),
         );
-        let decrypted = xaead_decrypt(key, nonce, &encrypted, aad);
+        let decrypted = xaead_decrypt(key, nonce, &encrypted, aad).unwrap();
         assert_eq!(data, &decrypted[..]);
     }
 }

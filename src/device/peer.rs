@@ -146,6 +146,10 @@ impl Peer {
     }
 
     pub async fn stage_outbound(&mut self, buf: Bytes) {}
+
+    pub async fn handshake(&mut self) {
+        debug!("handshake started");
+    }
 }
 
 async fn outbound_loop(mut peer: Peer, mut rx: OutboundRx) {

@@ -30,6 +30,14 @@ impl Timestamp {
             .map(|d| DateTime::<Utc>::from_utc(d, Utc).to_rfc3339())
             .unwrap_or_else(|| "invalid timestamp".to_string())
     }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    pub fn to_bytes(&self) -> [u8; 12] {
+        self.0
+    }
 }
 
 impl PartialEq<Self> for Timestamp {
