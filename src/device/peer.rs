@@ -4,6 +4,7 @@ use std::sync::{
     Arc,
 };
 
+use bytes::Bytes;
 use futures::future::join_all;
 use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
@@ -144,7 +145,7 @@ impl Peer {
         }
     }
 
-    pub async fn send_packet(&mut self) {}
+    pub async fn stage_outbound(&mut self, buf: Bytes) {}
 }
 
 async fn outbound_loop(mut peer: Peer, mut rx: OutboundRx) {

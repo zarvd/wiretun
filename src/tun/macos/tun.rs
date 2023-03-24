@@ -1,7 +1,9 @@
 use std::io;
 use std::mem::{size_of, size_of_val};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::sync::Arc;
 
+use bytes::{Buf, Bytes, BytesMut};
 use regex::Regex;
 use tokio::io::unix::AsyncFd;
 
@@ -22,8 +24,9 @@ fn parse_name(name: &str) -> Result<u32, Error> {
         .map_err(|_| Error::InvalidName)
 }
 
+#[derive(Debug, Clone)]
 pub struct Tun {
-    fd: AsyncFd<OwnedFd>,
+    fd: Arc<AsyncFd<OwnedFd>>,
     name: String,
 }
 
@@ -65,8 +68,10 @@ impl Tun {
             return Err(io::Error::last_os_error().into());
         }
 
+        unsafe { sys::set_nonblocking(fd.as_raw_fd())? };
+
         let name = unsafe { sys::get_iface_name(fd.as_raw_fd()) }?;
-        let fd = AsyncFd::new(fd)?;
+        let fd = Arc::new(AsyncFd::new(fd)?);
 
         Ok(Self { fd, name })
     }
@@ -92,6 +97,34 @@ impl Tun {
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    pub async fn read(&self) -> Result<Bytes, Error> {
+        let mut buf = BytesMut::zeroed(65536); // TODO: should we use a buffer pool?
+
+        loop {
+            let ret = {
+                let mut guard = self.fd.readable().await?;
+                guard.try_io(|inner| unsafe {
+                    let ret = libc::read(inner.as_raw_fd(), buf.as_mut_ptr() as _, buf.len());
+                    if ret < 0 {
+                        Err::<usize, io::Error>(io::Error::last_os_error())
+                    } else {
+                        Ok(ret as usize)
+                    }
+                })
+            };
+
+            match ret {
+                Ok(Ok(n)) if n >= 4 => {
+                    buf.advance(4);
+                    buf.truncate(n - 4);
+                    return Ok(buf.freeze());
+                }
+                Ok(Err(e)) => return Err(e.into()),
+                _ => continue,
+            }
+        }
     }
 }
 
