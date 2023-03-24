@@ -34,6 +34,7 @@ impl Device {
         Ok(())
     }
 
+    #[cfg(target_os = "macos")]
     async fn run_outbound_loop(&mut self) {
         const IPV4_HEADER_LEN: usize = 20;
         const IPV6_HEADER_LEN: usize = 40;
