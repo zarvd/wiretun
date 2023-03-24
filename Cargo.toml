@@ -7,7 +7,7 @@ keywords = ["wireguard"]
 repository = "https://github.com/lodrem/wiretun"
 homepage = "https://github.com/lodrem/wiretun"
 documentation = "https://docs.rs/wiretun"
-license = "MIT"
+license = "Apache-2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
