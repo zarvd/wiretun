@@ -76,6 +76,7 @@ mod tests {
 
         let ts0 = Timestamp::stamp(t0.clone());
         assert_eq!(encode_hex(&ts0.0), "400000000000000a07000000");
+        assert_eq!(ts0.to_string(), "1970-01-01T00:00:00.117440512+00:00");
 
         let ts1 = Timestamp::stamp(t0.add(Duration::nanoseconds(10)));
         assert!(!(ts0 < ts1));

@@ -2,6 +2,15 @@ use blake2::{
     digest::{FixedOutput, Mac, Update},
     Blake2s256, Blake2sMac, Digest,
 };
+use rand_core::OsRng;
+use x25519_dalek::{EphemeralSecret, PublicKey};
+
+#[inline]
+pub fn gen_ephemeral_key() -> (EphemeralSecret, PublicKey) {
+    let secret = EphemeralSecret::new(OsRng);
+    let public = PublicKey::from(&secret);
+    (secret, public)
+}
 
 #[inline]
 pub fn hash(in1: &[u8], in2: &[u8]) -> [u8; 32] {
