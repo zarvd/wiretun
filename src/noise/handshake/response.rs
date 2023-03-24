@@ -19,9 +19,9 @@ pub struct OutgoingResponse {
 
 impl OutgoingResponse {
     pub fn new(
+        initiation: &IncomingInitiation,
         local_index: u32,
         skp: &StaticKeyPair,
-        initiation: IncomingInitiation,
     ) -> (Self, Vec<u8>) {
         let mut buf = BytesMut::with_capacity(PACKET_SIZE);
 
@@ -104,7 +104,7 @@ pub struct IncomingResponse {
 
 impl IncomingResponse {
     pub fn parse(
-        initiation: OutgoingInitiation,
+        initiation: &OutgoingInitiation,
         skp: &StaticKeyPair,
         payload: &[u8],
     ) -> Result<Self, Error> {

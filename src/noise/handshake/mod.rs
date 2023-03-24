@@ -9,7 +9,11 @@ pub const LABEL_COOKIE: [u8; 8] = *b"cookie--";
 pub use initiation::{IncomingInitiation, OutgoingInitiation};
 pub use response::{IncomingResponse, OutgoingResponse};
 
+use crate::noise::crypto::kdf2;
+use crate::noise::session::Session;
 use x25519_dalek::{PublicKey, StaticSecret};
+
+use super::Error;
 
 pub struct StaticKeyPair {
     local_private: StaticSecret,
@@ -18,8 +22,16 @@ pub struct StaticKeyPair {
     psk: [u8; 32], // pre-shared key
 }
 
+enum State {
+    Uninit,
+    Initiation(OutgoingInitiation),
+    Finialized {},
+}
+
 pub struct Handshake {
+    state: State,
     static_key_pair: StaticKeyPair,
+    local_index: u32,
 }
 
 impl Handshake {
@@ -30,6 +42,8 @@ impl Handshake {
     ) -> Self {
         let local_static_public_key = PublicKey::from(&local_static_private_key);
         Self {
+            state: State::Uninit,
+            local_index: 0,
             static_key_pair: StaticKeyPair {
                 local_private: local_static_private_key,
                 local_public: local_static_public_key,
@@ -39,8 +53,33 @@ impl Handshake {
         }
     }
 
-    pub fn initiate(&self, local_index: u32) -> (OutgoingInitiation, Vec<u8>) {
-        OutgoingInitiation::new(local_index, &self.static_key_pair)
+    pub fn initiate(&mut self) -> Vec<u8> {
+        let (state, payload) = OutgoingInitiation::new(self.local_index, &self.static_key_pair);
+        self.state = State::Initiation(state);
+        payload
+    }
+
+    pub fn respond(&mut self, payload: &[u8]) -> Result<(Session, Vec<u8>), Error> {
+        let initiation = IncomingInitiation::parse(&self.static_key_pair, payload)?;
+        let (state, payload) =
+            OutgoingResponse::new(&initiation, self.local_index, &self.static_key_pair);
+        let (sender_nonce, receiver_nonce) = (self.local_index, initiation.index);
+        let (receiver_key, sender_key) = kdf2(&[], &state.chaining_key);
+        let sess = Session::new(sender_nonce, sender_key, receiver_nonce, receiver_key);
+        Ok((sess, payload))
+    }
+
+    pub fn finalize(&mut self, payload: &[u8]) -> Result<Session, Error> {
+        match &self.state {
+            State::Initiation(initiation) => {
+                let state = IncomingResponse::parse(initiation, &self.static_key_pair, payload)?;
+                let (sender_nonce, receiver_nonce) = (initiation.index, state.index);
+                let (sender_key, receiver_key) = kdf2(&[], &state.chaining_key);
+                let sess = Session::new(sender_nonce, sender_key, receiver_nonce, receiver_key);
+                Ok(sess)
+            }
+            _ => Err(Error::InvalidKeyLength), // FIXME
+        }
     }
 }
 
@@ -101,11 +140,33 @@ mod tests {
         assert_eq!(init_out.hash, init_in.hash);
         assert_eq!(init_out.chaining_key, init_in.chaining_key);
 
-        let (resp_out, payload) = OutgoingResponse::new(p2_i, &p2_key, init_in);
-        let resp_in = IncomingResponse::parse(init_out, &p1_key, &payload).unwrap();
+        let (resp_out, payload) = OutgoingResponse::new(&init_in, p2_i, &p2_key);
+        let resp_in = IncomingResponse::parse(&init_out, &p1_key, &payload).unwrap();
 
         assert_eq!(resp_in.index, p2_i);
         assert_eq!(resp_out.chaining_key, resp_in.chaining_key);
         assert_eq!(resp_out.hash, resp_in.hash);
+    }
+
+    #[test]
+    fn handshake() {
+        let (p1_key, p2_key) = gen_2_static_key();
+        let (p1_i, p2_i) = (42, 88);
+
+        let mut p1 = Handshake::new(p1_key.local_private, p2_key.local_public, p1_key.psk);
+        let mut p2 = Handshake::new(p2_key.local_private, p1_key.local_public, p2_key.psk);
+        p1.local_index = p1_i;
+        p2.local_index = p2_i;
+
+        let payload = p1.initiate();
+        let (p2_sess, payload) = p2.respond(&payload).unwrap();
+        let p1_sess = p1.finalize(&payload).unwrap();
+
+        assert_eq!(p1_sess.sender_nonce(), p1_i);
+        assert_eq!(p1_sess.sender_nonce(), p2_sess.receiver_nonce());
+        assert_eq!(p2_sess.sender_nonce(), p2_i);
+        assert_eq!(p2_sess.sender_nonce(), p1_sess.receiver_nonce());
+        assert_eq!(p1_sess.sender_key(), p2_sess.receiver_key());
+        assert_eq!(p2_sess.sender_key(), p1_sess.receiver_key());
     }
 }
