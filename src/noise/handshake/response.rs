@@ -132,7 +132,7 @@ impl IncomingResponse {
         if !empty.is_empty() {
             return Err(Error::InvalidKeyLength); // FIXME
         }
-        let h = hash(&h, &empty);
+        let h = hash(&h, &packet.empty);
 
         Ok(Self {
             index: packet.sender_index,

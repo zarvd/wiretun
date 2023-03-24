@@ -15,7 +15,7 @@ pub struct StaticKeyPair {
     local_private: StaticSecret,
     local_public: PublicKey,
     peer_public: PublicKey,
-    psk: [u8; 32],
+    psk: [u8; 32], // pre-shared key
 }
 
 pub struct Handshake {
@@ -59,7 +59,7 @@ mod tests {
         let p2_pri = StaticSecret::new(OsRng);
         let p2_pub = PublicKey::from(&p2_pri);
 
-        let psk = [0u8; 32]; // TODO generate random
+        let psk = StaticSecret::new(OsRng).to_bytes();
 
         (
             StaticKeyPair {
@@ -103,5 +103,9 @@ mod tests {
 
         let (resp_out, payload) = OutgoingResponse::new(p2_i, &p2_key, init_in);
         let resp_in = IncomingResponse::parse(init_out, &p1_key, &payload).unwrap();
+
+        assert_eq!(resp_in.index, p2_i);
+        assert_eq!(resp_out.chaining_key, resp_in.chaining_key);
+        assert_eq!(resp_out.hash, resp_in.hash);
     }
 }
