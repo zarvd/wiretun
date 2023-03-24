@@ -2,6 +2,7 @@ use blake2::{
     digest::{FixedOutput, Mac, Update},
     Blake2s256, Blake2sMac, Digest,
 };
+use chacha20poly1305::aead::Aead;
 use rand_core::OsRng;
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
@@ -69,10 +70,74 @@ pub fn kdf3(key: &[u8], in0: &[u8]) -> ([u8; 32], [u8; 32], [u8; 32]) {
     (t0, t1, t2)
 }
 
+#[inline]
+pub fn aead_encrypt(key: &[u8], counter: u64, msg: &[u8], aad: &[u8]) -> Vec<u8> {
+    use chacha20poly1305::aead::{Aead, Payload};
+    use chacha20poly1305::{KeyInit, Nonce};
+    let nonce = {
+        let mut nonce = [0u8; 12];
+        nonce[4..].copy_from_slice(&counter.to_le_bytes());
+        nonce
+    };
+
+    chacha20poly1305::ChaCha20Poly1305::new_from_slice(key)
+        .unwrap()
+        .encrypt(Nonce::from_slice(&nonce), Payload { msg, aad })
+        .unwrap()
+}
+
+#[inline]
+pub fn aead_decrypt(key: &[u8], counter: u64, msg: &[u8], aad: &[u8]) -> Vec<u8> {
+    use chacha20poly1305::aead::{Aead, Payload};
+    use chacha20poly1305::{KeyInit, Nonce};
+    let nonce = {
+        let mut nonce = [0u8; 12];
+        nonce[4..].copy_from_slice(&counter.to_le_bytes());
+        nonce
+    };
+    chacha20poly1305::ChaCha20Poly1305::new_from_slice(key)
+        .unwrap()
+        .decrypt(Nonce::from_slice(&nonce), Payload { msg, aad })
+        .unwrap()
+}
+
+#[inline]
+pub fn xaead_encrypt(key: &[u8], nonce: &[u8], msg: &[u8], aad: &[u8]) -> Vec<u8> {
+    use chacha20poly1305::aead::{Aead, Payload};
+    use chacha20poly1305::{KeyInit, XNonce};
+    chacha20poly1305::XChaCha20Poly1305::new_from_slice(key)
+        .unwrap()
+        .encrypt(XNonce::from_slice(nonce), Payload { msg, aad })
+        .unwrap()
+}
+
+#[inline]
+pub fn xaead_decrypt(key: &[u8], nonce: &[u8], msg: &[u8], aad: &[u8]) -> Vec<u8> {
+    use chacha20poly1305::aead::{Aead, Payload};
+    use chacha20poly1305::{KeyInit, XNonce};
+    chacha20poly1305::XChaCha20Poly1305::new_from_slice(key)
+        .unwrap()
+        .decrypt(XNonce::from_slice(nonce), Payload { msg, aad })
+        .unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    fn decoded_hex(s: &str) -> Vec<u8> {
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+            .collect()
+    }
+    fn encode_hex(bytes: &[u8]) -> String {
+        use std::fmt::Write;
+        let mut s = String::with_capacity(bytes.len() * 2);
+        for &b in bytes {
+            write!(&mut s, "{:02x}", b).unwrap();
+        }
+        s
+    }
     #[test]
     fn test_hash() {
         assert_eq!(
@@ -86,21 +151,6 @@ mod tests {
 
     #[test]
     fn test_kdf() {
-        fn decoded_hex(s: &str) -> Vec<u8> {
-            (0..s.len())
-                .step_by(2)
-                .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
-                .collect()
-        }
-        fn encode_hex(bytes: &[u8]) -> String {
-            use std::fmt::Write;
-            let mut s = String::with_capacity(bytes.len() * 2);
-            for &b in bytes {
-                write!(&mut s, "{:02x}", b).unwrap();
-            }
-            s
-        }
-
         let cases = [
             (
                 "746573742d6b6579",
@@ -156,5 +206,35 @@ mod tests {
             assert_eq!(encode_hex(&out.1), t1);
             assert_eq!(encode_hex(&out.2), t2);
         }
+    }
+
+    #[test]
+    fn test_aead() {
+        let key = b"0123456789abcdef0123456789abcdef";
+        let aad = b"fedcba9876543210";
+        let data = b"foobar";
+        let counter = 42;
+        let encrypted = aead_encrypt(key, counter, data, aad);
+        assert_eq!(
+            "3b97d40eb9a5a78385054b7be7027c9661a2031f4f91",
+            encode_hex(&encrypted),
+        );
+        let decrypted = aead_decrypt(key, counter, &encrypted, aad);
+        assert_eq!(data, &decrypted[..]);
+    }
+
+    #[test]
+    fn test_xaead() {
+        let key = b"0123456789abcdef0123456789abcdef";
+        let aad = b"fedcba9876543210";
+        let data = b"foobar";
+        let nonce = b"0123456789abcdef01234567";
+        let encrypted = xaead_encrypt(key, nonce, data, aad);
+        assert_eq!(
+            "2f8312b423a80a32585bcf059fbcfeee8063d258f030",
+            encode_hex(&encrypted),
+        );
+        let decrypted = xaead_decrypt(key, nonce, &encrypted, aad);
+        assert_eq!(data, &decrypted[..]);
     }
 }
