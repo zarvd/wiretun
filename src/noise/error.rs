@@ -4,4 +4,6 @@ pub enum Error {
     InvalidKeyLength,
     #[error("encryption error")]
     Encryption(chacha20poly1305::aead::Error),
+    #[error("wrong peer static key")]
+    WrongPeerStaticKey,
 }

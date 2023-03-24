@@ -1,8 +1,9 @@
+#![allow(dead_code)] // FIXME: Remove it before release
+
 pub mod config;
 mod device;
 mod listener;
-mod noise;
-
+pub mod noise;
 mod tun;
 
 pub use device::Device;
