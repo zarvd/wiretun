@@ -1,5 +1,5 @@
-use crate::Tun;
+mod device;
+mod peer;
 
-pub struct Device {
-    tun: Tun,
-}
+pub use device::Device;
+pub use peer::Peer;

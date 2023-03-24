@@ -1,10 +1,10 @@
 pub mod config;
-mod conn;
 mod device;
+mod listener;
 mod noise;
 
 mod tun;
 
-pub use conn::Conn;
 pub use device::Device;
+pub use listener::Listener;
 pub use tun::Tun;
