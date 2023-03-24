@@ -6,6 +6,11 @@
 [<img alt="build status" height="20" src="https://img.shields.io/github/workflow/status/lodrem/wiretun/CI/master?style=for-the-badge">](https://github.com/lodrem/wiretun/actions?query%3Amaster)
 [<img alt="dependency status" height="20" src="https://deps.rs/repo/github/lodrem/wiretun/status.svg?style=for-the-badge">](https://deps.rs/repo/github/lodrem/wiretun)
 
+
+## Minimum supported Rust version (MSRV)
+
+1.60
+
 ## License
 
 This project is licensed under the [Apache 2.0 license](LICENSE).
