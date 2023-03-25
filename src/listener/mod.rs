@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -9,6 +10,7 @@ use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
 use tracing::{debug, info};
 
+#[derive(Clone)]
 pub struct Listener {
     socket: Arc<UdpSocket>,
 }
@@ -68,6 +70,16 @@ impl Stream for Listener {
         };
         let src = self.socket.local_addr().unwrap();
         Poll::Ready(Some((Endpoint::new(self.socket.clone(), src, dst), data)))
+    }
+}
+
+impl Display for Listener {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Listener [local_addr = {}]",
+            self.socket.local_addr().unwrap()
+        )
     }
 }
 

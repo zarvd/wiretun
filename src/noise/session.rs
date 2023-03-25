@@ -40,3 +40,17 @@ impl Session {
         &self.receiver_key
     }
 }
+
+pub struct SessionManager {
+    sessions: (Session, Session, Session),
+}
+
+impl SessionManager {
+    pub fn current(&self) -> &Session {
+        &self.sessions.0
+    }
+
+    pub fn rotate(&mut self) {
+        // TODO
+    }
+}

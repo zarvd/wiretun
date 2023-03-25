@@ -45,7 +45,7 @@ impl HandleLoop {
 
     #[inline]
     pub async fn start(&mut self) {
-        self.shutdown_gracefully().await;
+        self.shutdown().await; // should return immediately
 
         let (inbound_tx, inbound_rx) = mpsc::unbounded_channel();
         let (outbound_tx, outbound_rx) = mpsc::unbounded_channel();
@@ -59,28 +59,28 @@ impl HandleLoop {
     }
 
     #[inline]
-    pub fn shutdown(&mut self) {
+    pub async fn shutdown(&mut self) {
+        if self.handles.is_empty() {
+            return;
+        }
         if let Some(tx) = self.inbound_tx.take() {
             tx.send(Event::EOF).unwrap();
         }
         if let Some(tx) = self.outbound_tx.take() {
             tx.send(Event::EOF).unwrap();
         }
-    }
-
-    #[inline]
-    pub async fn shutdown_gracefully(&mut self) {
-        if self.handles.is_empty() {
-            return;
-        }
-        self.shutdown();
         join_all(self.handles.drain(..)).await;
     }
 }
 
 impl Drop for HandleLoop {
     fn drop(&mut self) {
-        self.shutdown();
+        if let Some(tx) = self.inbound_tx.take() {
+            tx.send(Event::EOF).unwrap();
+        }
+        if let Some(tx) = self.outbound_tx.take() {
+            tx.send(Event::EOF).unwrap();
+        }
     }
 }
 
@@ -111,7 +111,7 @@ impl Peer {
         Ok(())
     }
 
-    pub async fn start(&mut self) -> Result<(), ()> {
+    pub async fn start(&self) -> Result<(), ()> {
         debug!("starting peer");
         let mut handle_loop = self.inner.handle_loop.write().await;
 
@@ -133,23 +133,19 @@ impl Peer {
             return Ok(());
         }
 
-        handle.shutdown_gracefully().await;
+        handle.shutdown().await;
         self.inner.running.store(true, atomic::Ordering::Relaxed);
 
         Ok(())
     }
 
-    pub async fn send_keepalive(&mut self) {
+    async fn send_keepalive(&mut self) {
         if !self.inner.running.load(atomic::Ordering::Relaxed) {
             return;
         }
     }
 
     pub async fn stage_outbound(&mut self, buf: Bytes) {}
-
-    pub async fn handshake(&mut self) {
-        debug!("handshake started");
-    }
 }
 
 async fn outbound_loop(mut peer: Peer, mut rx: OutboundRx) {
