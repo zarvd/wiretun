@@ -1,7 +1,7 @@
 use bytes::{BufMut, BytesMut};
-use x25519_dalek::{PublicKey, ReusableSecret};
 
-use super::{StaticKeyPair, CONSTRUCTION, IDENTIFIER, LABEL_MAC1};
+use super::{CONSTRUCTION, IDENTIFIER, LABEL_MAC1};
+use crate::noise::crypto::{EphermealPrivateKey, PublicKey, StaticSecret};
 use crate::noise::{
     crypto::{aead_decrypt, aead_encrypt, gen_ephemeral_key, hash, kdf1, kdf2, mac},
     timestamp::Timestamp,
@@ -15,33 +15,39 @@ pub struct OutgoingInitiation {
     pub(super) index: u32,
     pub(super) hash: [u8; 32],
     pub(super) chaining_key: [u8; 32],
-    pub(super) ephemeral_private_key: ReusableSecret,
+    pub(super) ephemeral_private_key: EphermealPrivateKey,
 }
 
 impl OutgoingInitiation {
-    pub fn new(sender_index: u32, skp: &StaticKeyPair) -> (Self, Vec<u8>) {
+    pub fn new(sender_index: u32, static_secret: &StaticSecret) -> (Self, Vec<u8>) {
         let mut buf = BytesMut::with_capacity(PACKET_SIZE);
 
         buf.put_u32_le(MESSAGE_TYPE_HANDSHAKE_INITIATION as _);
         buf.put_u32_le(sender_index);
 
         let c = hash(&CONSTRUCTION, b"");
-        let h = hash(&hash(&c, &IDENTIFIER), skp.peer_public.as_bytes());
+        let h = hash(
+            &hash(&c, &IDENTIFIER),
+            static_secret.peer_public().as_bytes(),
+        );
         let (ephemeral_pri, ephemeral_pub) = gen_ephemeral_key();
         let c = kdf1(ephemeral_pub.as_bytes(), &c);
         buf.put_slice(ephemeral_pub.as_bytes()); // 32 bytes
         let h = hash(&h, ephemeral_pub.as_bytes());
         let (c, k) = kdf2(
-            ephemeral_pri.diffie_hellman(&skp.peer_public).as_bytes(),
+            ephemeral_pri
+                .diffie_hellman(static_secret.peer_public())
+                .as_bytes(),
             &c,
         );
-        let static_key = aead_encrypt(&k, 0, skp.local_public.as_bytes(), &h).unwrap();
+        let static_key = aead_encrypt(&k, 0, static_secret.local_public().as_bytes(), &h).unwrap();
         buf.put_slice(&static_key); // 32 + 16 bytes
         let h = hash(&h, &static_key);
         let (c, k) = kdf2(
             &c,
-            skp.local_private
-                .diffie_hellman(&skp.peer_public)
+            static_secret
+                .local_private()
+                .diffie_hellman(static_secret.peer_public())
                 .as_bytes(),
         );
         let timestamp = aead_encrypt(&k, 0, Timestamp::now().as_bytes(), &h).unwrap();
@@ -49,7 +55,10 @@ impl OutgoingInitiation {
         let h = hash(&h, &timestamp);
 
         // mac1 and mac2
-        let mac1 = mac(&hash(&LABEL_MAC1, skp.local_public.as_bytes()), &buf);
+        let mac1 = mac(
+            &hash(&LABEL_MAC1, static_secret.local_public().as_bytes()),
+            &buf,
+        );
         buf.put_slice(&mac1); // 16 bytes
         let mac2 = [0u8; 16]; // TODO: calculate with cookie
         buf.put_slice(&mac2); // 16 bytes
@@ -104,30 +113,35 @@ pub struct IncomingInitiation {
 }
 
 impl IncomingInitiation {
-    pub fn parse(skp: &StaticKeyPair, payload: &[u8]) -> Result<Self, Error> {
+    pub fn parse(static_secret: &StaticSecret, payload: &[u8]) -> Result<Self, Error> {
         let packet = Packet::parse(payload)?;
 
         let c = hash(&CONSTRUCTION, b"");
-        let h = hash(&hash(&c, &IDENTIFIER), skp.local_public.as_bytes());
+        let h = hash(
+            &hash(&c, &IDENTIFIER),
+            static_secret.local_public().as_bytes(),
+        );
         let peer_ephemeral_pub = PublicKey::from(packet.ephemeral_pub);
         let c = kdf1(&packet.ephemeral_pub, &c);
         let h = hash(&h, &packet.ephemeral_pub);
         let (c, k) = kdf2(
-            skp.local_private
+            static_secret
+                .local_private()
                 .diffie_hellman(&peer_ephemeral_pub)
                 .as_bytes(),
             &c,
         );
         let static_key = aead_decrypt(&k, 0, &packet.static_key, &h)?;
-        if static_key != skp.peer_public.as_bytes() {
+        if static_key != static_secret.peer_public().as_bytes() {
             return Err(Error::WrongPeerStaticKey);
         }
 
         let h = hash(&h, &packet.static_key);
         let (c, k) = kdf2(
             &c,
-            skp.local_private
-                .diffie_hellman(&skp.peer_public)
+            static_secret
+                .local_private()
+                .diffie_hellman(static_secret.peer_public())
                 .as_bytes(),
         );
         let timestamp = aead_decrypt(&k, 0, &packet.timestamp, &h)?;

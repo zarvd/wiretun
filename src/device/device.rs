@@ -123,7 +123,7 @@ async fn loop_inbound(inner: Arc<Inner>, mut listener: Listener, stop_notify: Ar
 async fn tick_inbound(inner: Arc<Inner>, listener: &mut Listener) {
     match listener.next().await {
         Some((endpoint, data)) => {
-            debug!("received packet from {:?}", data);
+            debug!("received packet from {:?}", endpoint.dst());
         }
         None => {
             error!("listener error");

@@ -3,13 +3,59 @@ use blake2::{
     Blake2s256, Blake2sMac, Digest,
 };
 use rand_core::OsRng;
-use x25519_dalek::{PublicKey, ReusableSecret};
 
 use super::Error;
 
+pub type PrivateKey = x25519_dalek::StaticSecret;
+pub type PublicKey = x25519_dalek::PublicKey;
+pub type EphermealPrivateKey = x25519_dalek::ReusableSecret;
+
+pub struct StaticSecret {
+    local_private: PrivateKey,
+    local_public: PublicKey,
+    peer_public: PublicKey,
+    psk: [u8; 32], // pre-shared key
+}
+
+impl StaticSecret {
+    pub fn from_static(local_private_key: [u8; 32], peer_public_key: [u8; 32]) -> Self {
+        let local_private = PrivateKey::from(local_private_key);
+        let local_public = PublicKey::from(&local_private);
+        let peer_public = PublicKey::from(peer_public_key);
+        let psk = [0u8; 32];
+
+        Self {
+            local_private,
+            local_public,
+            peer_public,
+            psk,
+        }
+    }
+
+    pub fn set_psk(&mut self, psk: [u8; 32]) {
+        self.psk = psk;
+    }
+
+    pub fn local_private(&self) -> &PrivateKey {
+        &self.local_private
+    }
+
+    pub fn local_public(&self) -> &PublicKey {
+        &self.local_public
+    }
+
+    pub fn peer_public(&self) -> &PublicKey {
+        &self.peer_public
+    }
+
+    pub fn psk(&self) -> &[u8; 32] {
+        &self.psk
+    }
+}
+
 #[inline]
-pub fn gen_ephemeral_key() -> (ReusableSecret, PublicKey) {
-    let secret = ReusableSecret::new(OsRng);
+pub fn gen_ephemeral_key() -> (EphermealPrivateKey, PublicKey) {
+    let secret = EphermealPrivateKey::new(OsRng);
     let public = PublicKey::from(&secret);
     (secret, public)
 }

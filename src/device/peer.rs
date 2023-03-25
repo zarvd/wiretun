@@ -16,14 +16,14 @@ use crate::noise::protocol::Message;
 
 #[derive(Debug)]
 enum Event {
-    Message(Message),
+    Data(Vec<u8>),
     EOF,
 }
 
-type InboundTx = mpsc::UnboundedSender<Event>;
-type InboundRx = mpsc::UnboundedReceiver<Event>;
-type OutboundTx = mpsc::UnboundedSender<Event>;
-type OutboundRx = mpsc::UnboundedReceiver<Event>;
+type InboundTx = mpsc::Sender<Event>;
+type InboundRx = mpsc::Receiver<Event>;
+type OutboundTx = mpsc::Sender<Event>;
+type OutboundRx = mpsc::Receiver<Event>;
 
 struct HandleLoop {
     peer: Peer,
@@ -47,8 +47,8 @@ impl HandleLoop {
     pub async fn start(&mut self) {
         self.shutdown().await; // should return immediately
 
-        let (inbound_tx, inbound_rx) = mpsc::unbounded_channel();
-        let (outbound_tx, outbound_rx) = mpsc::unbounded_channel();
+        let (inbound_tx, inbound_rx) = mpsc::channel(256);
+        let (outbound_tx, outbound_rx) = mpsc::channel(256);
 
         self.handles
             .push(tokio::spawn(outbound_loop(self.peer.clone(), outbound_rx)));
@@ -64,23 +64,12 @@ impl HandleLoop {
             return;
         }
         if let Some(tx) = self.inbound_tx.take() {
-            tx.send(Event::EOF).unwrap();
+            tx.send(Event::EOF).await.unwrap();
         }
         if let Some(tx) = self.outbound_tx.take() {
-            tx.send(Event::EOF).unwrap();
+            tx.send(Event::EOF).await.unwrap();
         }
         join_all(self.handles.drain(..)).await;
-    }
-}
-
-impl Drop for HandleLoop {
-    fn drop(&mut self) {
-        if let Some(tx) = self.inbound_tx.take() {
-            tx.send(Event::EOF).unwrap();
-        }
-        if let Some(tx) = self.outbound_tx.take() {
-            tx.send(Event::EOF).unwrap();
-        }
     }
 }
 
@@ -145,50 +134,41 @@ impl Peer {
         }
     }
 
-    pub async fn stage_outbound(&mut self, buf: Bytes) {}
-}
-
-async fn outbound_loop(mut peer: Peer, mut rx: OutboundRx) {
-    debug!("outbound loop started");
-
-    while let Some(x) = rx.recv().await {
-        let buf = [0u8; 32];
-        match peer.send_buffer(&buf).await {
-            Ok(_) => {}
-            Err(e) => {
-                debug!("outbound loop error: {}", e);
-                continue;
-            }
+    // Stage outbound data to be sent to the peer
+    pub async fn stage_outbound(&mut self, buf: Bytes) {
+        let handle = self.inner.handle_loop.read().await;
+        if let Some(tx) = handle.outbound_tx.as_ref() {
+            tx.send(Event::Data(buf.to_vec())).await.unwrap(); // TODO try_send instead of blocking when channel is full
         }
     }
 }
 
+async fn outbound_loop(mut peer: Peer, mut rx: OutboundRx) {
+    debug!("starting outbound loop for peer");
+
+    while let Some(event) = rx.recv().await {
+        match event {
+            Event::Data(data) => {
+                peer.send_buffer(&data).await.unwrap();
+            }
+            Event::EOF => {
+                break;
+            }
+        }
+    }
+    debug!("exiting outbound loop for peer");
+}
+
 async fn inbound_loop(mut peer: Peer, mut rx: InboundRx) {
-    debug!("inbound loop started");
+    debug!("starting inbound loop for peer");
 
-    while let Some(x) = rx.recv().await {}
+    while let Some(x) = rx.recv().await {
+        match x {
+            Event::Data(msg) => {}
+            Event::EOF => {
+                break;
+            }
+        }
+    }
+    debug!("exiting inbound loop for peer");
 }
-
-type HashBytes = [u8; 32];
-
-enum HandshakeState {
-    Uninit,
-    InitiationCreated {
-        hash: HashBytes,
-        index: u32,
-        ephemeral_key: EphemeralSecret,
-    },
-    InitiationReceived {
-        hash: HashBytes,
-        remote_index: u32,
-        remote_ephemeral_pub: PublicKey,
-    },
-    ResponseCreated,
-    ResponseReceived,
-}
-
-struct Handshake {
-    state: HandshakeState,
-}
-
-impl Handshake {}

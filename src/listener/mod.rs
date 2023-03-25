@@ -100,4 +100,14 @@ impl Endpoint {
         self.socket.send_to(buf, &self.dst).await?;
         Ok(())
     }
+
+    #[inline]
+    pub fn dst(&self) -> SocketAddr {
+        self.dst
+    }
+
+    #[inline]
+    pub fn src(&self) -> SocketAddr {
+        self.src
+    }
 }
