@@ -10,42 +10,57 @@ pub type PrivateKey = x25519_dalek::StaticSecret;
 pub type PublicKey = x25519_dalek::PublicKey;
 pub type EphermealPrivateKey = x25519_dalek::ReusableSecret;
 
-pub struct StaticSecret {
-    local_private: PrivateKey,
-    local_public: PublicKey,
-    peer_public: PublicKey,
+#[derive(Clone)]
+pub struct LocalStaticSecret {
+    private: PrivateKey,
+    public: PublicKey,
+}
+
+impl LocalStaticSecret {
+    pub fn new(private_key: [u8; 32]) -> Self {
+        let private = PrivateKey::from(private_key);
+        let public = PublicKey::from(&private);
+
+        Self { private, public }
+    }
+
+    pub fn with_peer(self, peer_public_key: [u8; 32]) -> PeerStaticSecret {
+        PeerStaticSecret::new(self, peer_public_key)
+    }
+
+    pub fn private_key(&self) -> &PrivateKey {
+        &self.private
+    }
+
+    pub fn public_key(&self) -> &PublicKey {
+        &self.public
+    }
+}
+
+pub struct PeerStaticSecret {
+    local: LocalStaticSecret,
+    public: PublicKey,
     psk: [u8; 32], // pre-shared key
 }
 
-impl StaticSecret {
-    pub fn from_static(local_private_key: [u8; 32], peer_public_key: [u8; 32]) -> Self {
-        let local_private = PrivateKey::from(local_private_key);
-        let local_public = PublicKey::from(&local_private);
-        let peer_public = PublicKey::from(peer_public_key);
+impl PeerStaticSecret {
+    pub fn new(local: LocalStaticSecret, public_key: [u8; 32]) -> Self {
+        let public = PublicKey::from(public_key);
         let psk = [0u8; 32];
 
-        Self {
-            local_private,
-            local_public,
-            peer_public,
-            psk,
-        }
+        Self { local, public, psk }
     }
 
     pub fn set_psk(&mut self, psk: [u8; 32]) {
         self.psk = psk;
     }
 
-    pub fn local_private(&self) -> &PrivateKey {
-        &self.local_private
+    pub fn local(&self) -> &LocalStaticSecret {
+        &self.local
     }
 
-    pub fn local_public(&self) -> &PublicKey {
-        &self.local_public
-    }
-
-    pub fn peer_public(&self) -> &PublicKey {
-        &self.peer_public
+    pub fn public_key(&self) -> &PublicKey {
+        &self.public
     }
 
     pub fn psk(&self) -> &[u8; 32] {

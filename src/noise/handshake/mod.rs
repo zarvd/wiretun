@@ -17,20 +17,18 @@ mod tests {
     use rand_core::OsRng;
 
     use super::*;
-    use crate::noise::crypto::StaticSecret;
+    use crate::noise::crypto::{LocalStaticSecret, PeerStaticSecret};
 
     #[inline]
-    fn gen_2_static_key() -> (StaticSecret, StaticSecret) {
-        let p1_pri = x25519_dalek::StaticSecret::new(OsRng);
-        let p1_pub = x25519_dalek::PublicKey::from(&p1_pri);
-        let p2_pri = x25519_dalek::StaticSecret::new(OsRng);
-        let p2_pub = x25519_dalek::PublicKey::from(&p2_pri);
+    fn gen_2_static_key() -> (PeerStaticSecret, PeerStaticSecret) {
+        let p1_local = LocalStaticSecret::new(x25519_dalek::StaticSecret::new(OsRng).to_bytes());
+        let p2_local = LocalStaticSecret::new(x25519_dalek::StaticSecret::new(OsRng).to_bytes());
+        let mut p1_secret = p1_local.clone().with_peer(p2_local.public_key().to_bytes());
+        let mut p2_secret = p2_local.with_peer(p1_local.public_key().to_bytes());
         let psk = x25519_dalek::StaticSecret::new(OsRng).to_bytes();
-
-        let mut p1_secret = StaticSecret::from_static(p1_pri.to_bytes(), p2_pub.to_bytes());
-        let mut p2_secret = StaticSecret::from_static(p2_pri.to_bytes(), p1_pub.to_bytes());
         p1_secret.set_psk(psk);
         p2_secret.set_psk(psk);
+
         (p1_secret, p2_secret)
     }
 

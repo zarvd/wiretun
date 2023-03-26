@@ -4,7 +4,7 @@ use super::{IncomingInitiation, OutgoingInitiation, LABEL_MAC1};
 use crate::noise::{
     crypto::{
         aead_decrypt, aead_encrypt, gen_ephemeral_key, hash, kdf1, kdf3, mac, EphermealPrivateKey,
-        PublicKey, StaticSecret,
+        PeerStaticSecret, PublicKey,
     },
     Error,
 };
@@ -22,7 +22,7 @@ impl OutgoingResponse {
     pub fn new(
         initiation: &IncomingInitiation,
         local_index: u32,
-        static_secret: &StaticSecret,
+        secret: &PeerStaticSecret,
     ) -> (Self, Vec<u8>) {
         let mut buf = BytesMut::with_capacity(PACKET_SIZE);
 
@@ -40,12 +40,10 @@ impl OutgoingResponse {
             &c,
         );
         let c = kdf1(
-            ephemeral_pri
-                .diffie_hellman(static_secret.peer_public())
-                .as_bytes(),
+            ephemeral_pri.diffie_hellman(secret.public_key()).as_bytes(),
             &c,
         );
-        let (c, t, k) = kdf3(static_secret.psk(), &c);
+        let (c, t, k) = kdf3(secret.psk(), &c);
         let h = hash(&h, &t);
         let empty = aead_encrypt(&k, 0, &[], &h).unwrap();
         buf.put_slice(&empty); // 16 bytes
@@ -53,7 +51,7 @@ impl OutgoingResponse {
 
         // mac1 and mac2
         let mac1 = mac(
-            &hash(&LABEL_MAC1, static_secret.local_public().as_bytes()),
+            &hash(&LABEL_MAC1, secret.local().public_key().as_bytes()),
             &buf,
         );
         buf.put_slice(&mac1); // 16 bytes
@@ -111,7 +109,7 @@ pub struct IncomingResponse {
 impl IncomingResponse {
     pub fn parse(
         initiation: &OutgoingInitiation,
-        static_secret: &StaticSecret,
+        secret: &PeerStaticSecret,
         payload: &[u8],
     ) -> Result<Self, Error> {
         let packet = Packet::parse(payload)?;
@@ -127,13 +125,14 @@ impl IncomingResponse {
             &c,
         );
         let c = kdf1(
-            static_secret
-                .local_private()
+            secret
+                .local()
+                .private_key()
                 .diffie_hellman(&peer_ephemeral_pub)
                 .as_bytes(),
             &c,
         );
-        let (c, t, k) = kdf3(static_secret.psk(), &c);
+        let (c, t, k) = kdf3(secret.psk(), &c);
         let h = hash(&h, &t);
         let empty = aead_decrypt(&k, 0, &packet.empty, &h)?;
         if !empty.is_empty() {
