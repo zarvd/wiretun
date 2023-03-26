@@ -22,7 +22,7 @@ impl Peers {
         let mut by_static_public_key = self.by_static_public_key.write().unwrap();
         let peer = by_static_public_key
             .entry(*public_key)
-            .or_insert_with(|| Peer::new());
+            .or_insert_with(Peer::new);
 
         let mut by_allowed_ips = self.by_allowed_ips.write().unwrap();
         for allowed_ip in allowed_ips {

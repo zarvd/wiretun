@@ -11,7 +11,7 @@ use tokio::task::JoinHandle;
 use tracing::debug;
 
 use crate::listener::Endpoint;
-use crate::noise::crypto::{PeerStaticSecret, PublicKey};
+use crate::noise::crypto::{PeerStaticSecret};
 
 #[derive(Debug)]
 enum Event {

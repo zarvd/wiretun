@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+
 use std::mem;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -11,7 +11,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, warn};
 
 use super::peer::Peers;
-use super::{Error, Peer};
+use super::{Error};
 use crate::noise::crypto::LocalStaticSecret;
 use crate::noise::handshake::IncomingInitiation;
 use crate::{noise, Listener, Tun};
@@ -110,9 +110,9 @@ async fn tick_inbound(inner: Arc<Inner>, listener: &mut Listener) {
                         IncomingInitiation::parse(&inner.secret, &data).unwrap_or_else(|_| todo!());
                     match inner
                         .peers
-                        .by_static_public_key(&initiation.static_public_key.as_bytes())
+                        .by_static_public_key(initiation.static_public_key.as_bytes())
                     {
-                        Some(peer) => {
+                        Some(_peer) => {
                             // TODO: respond peer handshake
                         }
                         None => {
