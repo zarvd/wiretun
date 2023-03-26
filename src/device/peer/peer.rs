@@ -10,8 +10,8 @@ use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
 use tracing::debug;
 
-
 use crate::listener::Endpoint;
+use crate::noise::crypto::{PeerStaticSecret, PublicKey};
 
 #[derive(Debug)]
 enum Event {
@@ -86,6 +86,10 @@ pub struct Peer {
 }
 
 impl Peer {
+    pub fn new() -> Self {
+        unimplemented!()
+    }
+
     async fn send_buffer(&mut self, buf: &[u8]) -> Result<(), io::Error> {
         let endpoint = self.inner.endpoint.read().await;
         match endpoint.as_ref() {
@@ -127,9 +131,12 @@ impl Peer {
         Ok(())
     }
 
+    pub fn secret(&self) -> &PeerStaticSecret {
+        unimplemented!()
+    }
+
     async fn send_keepalive(&mut self) {
-        if !self.inner.running.load(atomic::Ordering::Relaxed) {
-        }
+        if !self.inner.running.load(atomic::Ordering::Relaxed) {}
     }
 
     // Stage outbound data to be sent to the peer

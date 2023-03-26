@@ -10,26 +10,24 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, warn};
 
+use super::peer::Peers;
 use super::{Error, Peer};
+use crate::noise::crypto::LocalStaticSecret;
+use crate::noise::handshake::IncomingInitiation;
 use crate::{noise, Listener, Tun};
 
 const MAX_PEERS: usize = 1 << 16;
 
-type PublicKey = [u8; 32];
-
 struct Inner {
     tun: Tun,
-    peers: RwLock<HashMap<PublicKey, Peer>>,
-    allowed_ips: RwLock<HashMap<Bytes, Peer>>,
+    secret: LocalStaticSecret,
+    peers: Peers,
 }
 
 impl Inner {
     async fn up(&self) {
         debug!("device is up");
-        let peers = self.peers.read().unwrap();
-        for peer in peers.values() {
-            peer.start().await;
-        }
+        self.peers.start_all().await;
     }
 
     fn down(&self) {}
@@ -41,26 +39,7 @@ pub struct Device {
 
 impl Device {
     pub fn new() -> Self {
-        Self {
-            inner: Arc::new(Inner {
-                tun: Tun::new("utun").unwrap(),
-                peers: RwLock::new(HashMap::new()),
-                allowed_ips: RwLock::new(HashMap::new()),
-            }),
-        }
-    }
-
-    pub fn insert_peer(&self, public_key: PublicKey) -> Result<(), Error> {
-        let peers = self.inner.peers.write().unwrap();
-        if peers.len() > MAX_PEERS {
-            return Err(Error::TooManyPeers);
-        }
-        if peers.contains_key(&public_key) {
-            return Err(Error::PeerAlreadyExists);
-        }
-        let _allowed_ips = self.inner.allowed_ips.write().unwrap();
-
-        Ok(())
+        unimplemented!()
     }
 
     pub async fn start(self) -> Result<Handle, Error> {
@@ -120,13 +99,30 @@ async fn loop_inbound(inner: Arc<Inner>, mut listener: Listener, stop_notify: Ar
 }
 
 #[inline]
-async fn tick_inbound(_inner: Arc<Inner>, listener: &mut Listener) {
+async fn tick_inbound(inner: Arc<Inner>, listener: &mut Listener) {
     match listener.next().await {
         Some((endpoint, data)) => {
             debug!("received packet from {:?}", endpoint.dst());
 
             match noise::MessageType::parse(&data) {
-                Ok(noise::MessageType::HandshakeInitiation) => {}
+                Ok(noise::MessageType::HandshakeInitiation) => {
+                    let initiation =
+                        IncomingInitiation::parse(&inner.secret, &data).unwrap_or_else(|_| todo!());
+                    match inner
+                        .peers
+                        .by_static_public_key(&initiation.static_public_key.as_bytes())
+                    {
+                        Some(peer) => {
+                            // TODO: respond peer handshake
+                        }
+                        None => {
+                            warn!(
+                                "peer not found. expected static key = {:?}",
+                                initiation.static_public_key
+                            )
+                        }
+                    }
+                }
                 Ok(noise::MessageType::HandshakeResponse) => {}
                 Ok(noise::MessageType::CookieReply) => {}
                 Ok(noise::MessageType::TransportData) => {}
@@ -174,10 +170,7 @@ async fn tick_outbound(inner: Arc<Inner>) {
                 }
             };
 
-            let peer = {
-                let allowed_ips = inner.allowed_ips.read().unwrap();
-                allowed_ips.get(&Bytes::copy_from_slice(dst)).cloned()
-            };
+            let peer = inner.peers.by_allow_ip(Bytes::copy_from_slice(dst));
 
             if let Some(mut peer) = peer {
                 peer.stage_outbound(buf).await
