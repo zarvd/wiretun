@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::mem;
-use std::sync::{atomic::AtomicBool, Arc, RwLock};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -58,7 +58,7 @@ impl Device {
         if peers.contains_key(&public_key) {
             return Err(Error::PeerAlreadyExists);
         }
-        let allowed_ips = self.inner.allowed_ips.write().unwrap();
+        let _allowed_ips = self.inner.allowed_ips.write().unwrap();
 
         Ok(())
     }
@@ -102,7 +102,7 @@ async fn loop_tun_events(inner: Arc<Inner>, stop_notify: Arc<Notify>) {
 }
 
 #[inline]
-async fn tick_tun_events(inner: Arc<Inner>) {
+async fn tick_tun_events(_inner: Arc<Inner>) {
     tokio::time::sleep(Duration::from_secs(5)).await;
 }
 
@@ -120,7 +120,7 @@ async fn loop_inbound(inner: Arc<Inner>, mut listener: Listener, stop_notify: Ar
 }
 
 #[inline]
-async fn tick_inbound(inner: Arc<Inner>, listener: &mut Listener) {
+async fn tick_inbound(_inner: Arc<Inner>, listener: &mut Listener) {
     match listener.next().await {
         Some((endpoint, data)) => {
             debug!("received packet from {:?}", endpoint.dst());
@@ -132,7 +132,6 @@ async fn tick_inbound(inner: Arc<Inner>, listener: &mut Listener) {
                 Ok(noise::MessageType::TransportData) => {}
                 Err(e) => {
                     warn!("failed to parse message type: {:?}", e);
-                    return;
                 }
             }
         }

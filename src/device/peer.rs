@@ -9,7 +9,7 @@ use futures::future::join_all;
 use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
 use tracing::debug;
-use x25519_dalek::{EphemeralSecret, PublicKey};
+
 
 use crate::listener::Endpoint;
 
@@ -53,8 +53,8 @@ impl HandleLoop {
             .push(tokio::spawn(outbound_loop(self.peer.clone(), outbound_rx)));
         self.handles
             .push(tokio::spawn(inbound_loop(self.peer.clone(), inbound_rx)));
-        self.inbound_tx = Some(inbound_tx.clone());
-        self.outbound_tx = Some(outbound_tx.clone());
+        self.inbound_tx = Some(inbound_tx);
+        self.outbound_tx = Some(outbound_tx);
     }
 
     #[inline]
@@ -129,7 +129,6 @@ impl Peer {
 
     async fn send_keepalive(&mut self) {
         if !self.inner.running.load(atomic::Ordering::Relaxed) {
-            return;
         }
     }
 
@@ -158,12 +157,12 @@ async fn outbound_loop(mut peer: Peer, mut rx: OutboundRx) {
     debug!("exiting outbound loop for peer");
 }
 
-async fn inbound_loop(mut peer: Peer, mut rx: InboundRx) {
+async fn inbound_loop(_peer: Peer, mut rx: InboundRx) {
     debug!("starting inbound loop for peer");
 
     while let Some(x) = rx.recv().await {
         match x {
-            Event::Data(msg) => {}
+            Event::Data(_msg) => {}
             Event::EOF => {
                 break;
             }

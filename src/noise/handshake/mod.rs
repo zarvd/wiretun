@@ -32,7 +32,7 @@ mod tests {
     #[test]
     fn handshake_initiation() {
         let (p1_key, p2_key) = gen_2_static_key();
-        let (p1_i, p2_i) = (42, 88);
+        let (p1_i, _p2_i) = (42, 88);
 
         let (init_out, payload) = OutgoingInitiation::new(p1_i, &p1_key);
         let init_in = IncomingInitiation::parse(p2_key.local(), &payload).unwrap();

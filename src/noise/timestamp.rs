@@ -8,7 +8,7 @@ pub struct Timestamp([u8; 12]);
 impl Timestamp {
     fn stamp(t: DateTime<Utc>) -> Self {
         let secs = BASE + t.timestamp() as u64;
-        let nanos = t.timestamp_subsec_nanos() as u32 & !WHITENER_MASK;
+        let nanos = t.timestamp_subsec_nanos() & !WHITENER_MASK;
         let b = {
             let mut dst = [0u8; 12];
             dst[..8].copy_from_slice(&secs.to_be_bytes());
@@ -88,21 +88,21 @@ mod tests {
             .and_local_timezone(Utc)
             .unwrap();
 
-        let ts0 = Timestamp::stamp(t0.clone());
+        let ts0 = Timestamp::stamp(*t0);
         assert_eq!(encode_hex(&ts0.0), "400000000000000a07000000");
         assert_eq!(ts0.to_string(), "1970-01-01T00:00:00.117440512+00:00");
 
         let ts1 = Timestamp::stamp(t0.add(Duration::nanoseconds(10)));
-        assert!(!(ts0 < ts1));
+        assert!(ts0 >= ts1);
 
         let ts2 = Timestamp::stamp(t0.add(Duration::microseconds(10)));
-        assert!(!(ts0 < ts2));
+        assert!(ts0 >= ts2);
 
         let ts3 = Timestamp::stamp(t0.add(Duration::milliseconds(1)));
-        assert!(!(ts0 < ts3));
+        assert!(ts0 >= ts3);
 
         let ts4 = Timestamp::stamp(t0.add(Duration::milliseconds(10)));
-        assert!(!(ts0 < ts4));
+        assert!(ts0 >= ts4);
 
         let ts5 = Timestamp::stamp(t0.add(Duration::milliseconds(20)));
         assert!(ts0 < ts5);

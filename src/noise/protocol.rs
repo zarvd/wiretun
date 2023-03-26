@@ -1,8 +1,8 @@
-use tracing::debug;
+
 
 use super::Error;
-use crate::noise::crypto::LocalStaticSecret;
-use crate::noise::handshake::IncomingInitiation;
+
+
 
 const MESSAGE_TYPE_HANDSHAKE_INITIATION: u8 = 1u8;
 const MESSAGE_TYPE_HANDSHAKE_RESPONSE: u8 = 2u8;

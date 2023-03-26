@@ -1,6 +1,6 @@
 use super::Session;
 use crate::noise::{
-    crypto::{kdf2, PeerStaticSecret, PrivateKey, PublicKey},
+    crypto::{kdf2, PeerStaticSecret},
     handshake::{IncomingInitiation, IncomingResponse, OutgoingInitiation, OutgoingResponse},
     Error,
 };

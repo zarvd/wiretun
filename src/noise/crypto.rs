@@ -146,7 +146,7 @@ pub fn aead_encrypt(key: &[u8], counter: u64, msg: &[u8], aad: &[u8]) -> Result<
         .map_err(|_| Error::InvalidKeyLength)?;
     let rv = cipher
         .encrypt(Nonce::from_slice(&nonce), Payload { msg, aad })
-        .map_err(|e| Error::Encryption(e))?;
+        .map_err(Error::Encryption)?;
     Ok(rv)
 }
 
@@ -163,7 +163,7 @@ pub fn aead_decrypt(key: &[u8], counter: u64, msg: &[u8], aad: &[u8]) -> Result<
         .map_err(|_| Error::InvalidKeyLength)?;
     let rv = cipher
         .decrypt(Nonce::from_slice(&nonce), Payload { msg, aad })
-        .map_err(|e| Error::Encryption(e))?;
+        .map_err(Error::Encryption)?;
     Ok(rv)
 }
 
@@ -175,7 +175,7 @@ pub fn xaead_encrypt(key: &[u8], nonce: &[u8], msg: &[u8], aad: &[u8]) -> Result
         .map_err(|_| Error::InvalidKeyLength)?;
     let rv = cipher
         .encrypt(XNonce::from_slice(nonce), Payload { msg, aad })
-        .map_err(|e| Error::Encryption(e))?;
+        .map_err(Error::Encryption)?;
     Ok(rv)
 }
 
@@ -188,7 +188,7 @@ pub fn xaead_decrypt(key: &[u8], nonce: &[u8], msg: &[u8], aad: &[u8]) -> Result
 
     let rv = cipher
         .decrypt(XNonce::from_slice(nonce), Payload { msg, aad })
-        .map_err(|e| Error::Encryption(e))?;
+        .map_err(Error::Encryption)?;
     Ok(rv)
 }
 

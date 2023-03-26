@@ -148,7 +148,7 @@ impl IncomingInitiation {
             index: packet.sender_index,
             hash: h,
             chaining_key: c,
-            timestamp: timestamp,
+            timestamp,
             ephemeral_public_key: peer_ephemeral_pub,
             static_public_key: peer_static_pub,
         })
