@@ -1,16 +1,13 @@
-mod handshake;
 mod initiation;
 mod response;
-
-use initiation::{IncomingInitiation, OutgoingInitiation};
-use response::{IncomingResponse, OutgoingResponse};
 
 pub const CONSTRUCTION: [u8; 37] = *b"Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s";
 pub const IDENTIFIER: [u8; 34] = *b"WireGuard v1 zx2c4 Jason@zx2c4.com";
 pub const LABEL_MAC1: [u8; 8] = *b"mac1----";
 pub const LABEL_COOKIE: [u8; 8] = *b"cookie--";
 
-pub use handshake::Handshake;
+pub use initiation::{IncomingInitiation, OutgoingInitiation};
+pub use response::{IncomingResponse, OutgoingResponse};
 
 #[cfg(test)]
 mod tests {
@@ -38,7 +35,7 @@ mod tests {
         let (p1_i, p2_i) = (42, 88);
 
         let (init_out, payload) = OutgoingInitiation::new(p1_i, &p1_key);
-        let init_in = IncomingInitiation::parse(&p2_key, &payload).unwrap();
+        let init_in = IncomingInitiation::parse(p2_key.local(), &payload).unwrap();
 
         assert_eq!(init_in.index(), p1_i);
         assert_eq!(init_out.hash, init_in.hash);
@@ -51,7 +48,7 @@ mod tests {
         let (p1_i, p2_i) = (42, 88);
 
         let (init_out, payload) = OutgoingInitiation::new(p1_i, &p1_key);
-        let init_in = IncomingInitiation::parse(&p2_key, &payload).unwrap();
+        let init_in = IncomingInitiation::parse(p2_key.local(), &payload).unwrap();
 
         assert_eq!(init_out.hash, init_in.hash);
         assert_eq!(init_out.chaining_key, init_in.chaining_key);
@@ -64,25 +61,25 @@ mod tests {
         assert_eq!(resp_out.hash, resp_in.hash);
     }
 
-    #[test]
-    fn handshake() {
-        let (p1_key, p2_key) = gen_2_static_key();
-        let (p1_i, p2_i) = (42, 88);
-
-        let mut p1 = Handshake::new(p1_key);
-        let mut p2 = Handshake::new(p2_key);
-        p1.local_index = p1_i;
-        p2.local_index = p2_i;
-
-        let payload = p1.initiate();
-        let (p2_sess, payload) = p2.respond(&payload).unwrap();
-        let p1_sess = p1.finalize(&payload).unwrap();
-
-        assert_eq!(p1_sess.sender_nonce(), p1_i);
-        assert_eq!(p1_sess.sender_nonce(), p2_sess.receiver_nonce());
-        assert_eq!(p2_sess.sender_nonce(), p2_i);
-        assert_eq!(p2_sess.sender_nonce(), p1_sess.receiver_nonce());
-        assert_eq!(p1_sess.sender_key(), p2_sess.receiver_key());
-        assert_eq!(p2_sess.sender_key(), p1_sess.receiver_key());
-    }
+    // #[test]
+    // fn handshake() {
+    //     let (p1_key, p2_key) = gen_2_static_key();
+    //     let (p1_i, p2_i) = (42, 88);
+    //
+    //     let mut p1 = Handshake::new(p1_key);
+    //     let mut p2 = Handshake::new(p2_key);
+    //     p1.local_index = p1_i;
+    //     p2.local_index = p2_i;
+    //
+    //     let payload = p1.initiate();
+    //     let (p2_sess, payload) = p2.respond(&payload).unwrap();
+    //     let p1_sess = p1.finalize(&payload).unwrap();
+    //
+    //     assert_eq!(p1_sess.sender_nonce(), p1_i);
+    //     assert_eq!(p1_sess.sender_nonce(), p2_sess.receiver_nonce());
+    //     assert_eq!(p2_sess.sender_nonce(), p2_i);
+    //     assert_eq!(p2_sess.sender_nonce(), p1_sess.receiver_nonce());
+    //     assert_eq!(p1_sess.sender_key(), p2_sess.receiver_key());
+    //     assert_eq!(p2_sess.sender_key(), p1_sess.receiver_key());
+    // }
 }

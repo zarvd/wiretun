@@ -12,7 +12,6 @@ use tracing::debug;
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
 use crate::listener::Endpoint;
-use crate::noise::protocol::Message;
 
 #[derive(Debug)]
 enum Event {

@@ -1,9 +1,8 @@
-mod crypto;
+pub mod crypto;
 mod error;
-mod handshake;
-mod packet;
+pub mod handshake;
 pub mod protocol;
-mod session;
 mod timestamp;
 
 pub use error::Error;
+pub use protocol::MessageType;

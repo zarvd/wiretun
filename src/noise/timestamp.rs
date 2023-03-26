@@ -40,6 +40,12 @@ impl Timestamp {
     }
 }
 
+impl From<[u8; 12]> for Timestamp {
+    fn from(b: [u8; 12]) -> Self {
+        Self(b)
+    }
+}
+
 impl PartialEq<Self> for Timestamp {
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0

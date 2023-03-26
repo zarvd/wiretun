@@ -1,7 +1,9 @@
-use super::{IncomingInitiation, IncomingResponse, OutgoingInitiation, OutgoingResponse};
-use crate::noise::crypto::{kdf2, PeerStaticSecret, PrivateKey, PublicKey};
-use crate::noise::session::Session;
-use crate::noise::Error;
+use super::Session;
+use crate::noise::{
+    crypto::{kdf2, PeerStaticSecret, PrivateKey, PublicKey},
+    handshake::{IncomingInitiation, IncomingResponse, OutgoingInitiation, OutgoingResponse},
+    Error,
+};
 
 enum State {
     Uninit,
@@ -33,7 +35,7 @@ impl Handshake {
 
     // Receive HandshakeInitiation packet from peer.
     pub fn respond(&mut self, payload: &[u8]) -> Result<(Session, Vec<u8>), Error> {
-        let initiation = IncomingInitiation::parse(&self.secret, payload)?;
+        let initiation = IncomingInitiation::parse(self.secret.local(), payload)?;
         let (state, payload) = OutgoingResponse::new(&initiation, self.local_index, &self.secret);
         let (sender_nonce, receiver_nonce) = (self.local_index, initiation.index);
         let (receiver_key, sender_key) = kdf2(&[], &state.chaining_key);

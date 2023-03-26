@@ -8,10 +8,10 @@ use futures::future::join_all;
 use futures::StreamExt;
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
-use tracing::{debug, error};
+use tracing::{debug, error, warn};
 
 use super::{Error, Peer};
-use crate::{Listener, Tun};
+use crate::{noise, Listener, Tun};
 
 const MAX_PEERS: usize = 1 << 16;
 
@@ -124,6 +124,17 @@ async fn tick_inbound(inner: Arc<Inner>, listener: &mut Listener) {
     match listener.next().await {
         Some((endpoint, data)) => {
             debug!("received packet from {:?}", endpoint.dst());
+
+            match noise::MessageType::parse(&data) {
+                Ok(noise::MessageType::HandshakeInitiation) => {}
+                Ok(noise::MessageType::HandshakeResponse) => {}
+                Ok(noise::MessageType::CookieReply) => {}
+                Ok(noise::MessageType::TransportData) => {}
+                Err(e) => {
+                    warn!("failed to parse message type: {:?}", e);
+                    return;
+                }
+            }
         }
         None => {
             error!("listener error");

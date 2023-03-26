@@ -13,9 +13,9 @@ const MESSAGE_TYPE_HANDSHAKE_RESPONSE: u8 = 2u8;
 const PACKET_SIZE: usize = 92;
 
 pub struct OutgoingResponse {
-    pub(super) hash: [u8; 32],
-    pub(super) chaining_key: [u8; 32],
-    pub(super) ephemeral_private_key: EphermealPrivateKey,
+    pub hash: [u8; 32],
+    pub chaining_key: [u8; 32],
+    pub ephemeral_private_key: EphermealPrivateKey,
 }
 
 impl OutgoingResponse {
@@ -100,10 +100,10 @@ impl Packet {
 }
 
 pub struct IncomingResponse {
-    pub(super) index: u32,
-    pub(super) ephemeral_public_key: PublicKey,
-    pub(super) hash: [u8; 32],
-    pub(super) chaining_key: [u8; 32],
+    pub index: u32,
+    pub ephemeral_public_key: PublicKey,
+    pub hash: [u8; 32],
+    pub chaining_key: [u8; 32],
 }
 
 impl IncomingResponse {
