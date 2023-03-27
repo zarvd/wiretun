@@ -1,6 +1,5 @@
-
 use std::mem;
-use std::sync::{Arc};
+use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -11,10 +10,11 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, warn};
 
 use super::peer::Peers;
-use super::{Error};
+use super::Error;
 use crate::noise::crypto::LocalStaticSecret;
 use crate::noise::handshake::IncomingInitiation;
-use crate::{noise, Listener, Tun};
+use crate::noise::protocol::Message;
+use crate::{Listener, Tun};
 
 const MAX_PEERS: usize = 1 << 16;
 
@@ -22,15 +22,6 @@ struct Inner {
     tun: Tun,
     secret: LocalStaticSecret,
     peers: Peers,
-}
-
-impl Inner {
-    async fn up(&self) {
-        debug!("device is up");
-        self.peers.start_all().await;
-    }
-
-    fn down(&self) {}
 }
 
 pub struct Device {
@@ -104,28 +95,32 @@ async fn tick_inbound(inner: Arc<Inner>, listener: &mut Listener) {
         Some((endpoint, data)) => {
             debug!("received packet from {:?}", endpoint.dst());
 
-            match noise::MessageType::parse(&data) {
-                Ok(noise::MessageType::HandshakeInitiation) => {
+            match Message::parse(&data) {
+                Ok(Message::HandshakeInitiation(p)) => {
                     let initiation =
-                        IncomingInitiation::parse(&inner.secret, &data).unwrap_or_else(|_| todo!());
-                    match inner
+                        IncomingInitiation::parse(&inner.secret, &p).unwrap_or_else(|_| todo!());
+                    if let Some(peer) = inner
                         .peers
                         .by_static_public_key(initiation.static_public_key.as_bytes())
                     {
-                        Some(_peer) => {
-                            // TODO: respond peer handshake
-                        }
-                        None => {
-                            warn!(
-                                "peer not found. expected static key = {:?}",
-                                initiation.static_public_key
-                            )
-                        }
+                        peer.handle_handshake_initiation(initiation).await;
                     }
                 }
-                Ok(noise::MessageType::HandshakeResponse) => {}
-                Ok(noise::MessageType::CookieReply) => {}
-                Ok(noise::MessageType::TransportData) => {}
+                Ok(Message::HandshakeResponse(p)) => {
+                    if let Some(peer) = inner.peers.by_index(p.receiver_index) {
+                        peer.handle_handshake_response(p).await;
+                    }
+                }
+                Ok(Message::CookieReply(p)) => {
+                    if let Some(mut peer) = inner.peers.by_index(p.receiver_index) {
+                        peer.handle_cookie_reply(p).await;
+                    }
+                }
+                Ok(Message::TransportData(p)) => {
+                    if let Some(mut peer) = inner.peers.by_index(p.receiver_index) {
+                        peer.handle_transport_data(p).await;
+                    }
+                }
                 Err(e) => {
                     warn!("failed to parse message type: {:?}", e);
                 }

@@ -4,80 +4,100 @@ use std::sync::{
     Arc,
 };
 
+use crate::device::peer::OutboundEvent;
 use bytes::Bytes;
 use futures::future::join_all;
 use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
 use tracing::debug;
 
+use super::{handshake::Handshake, InboundEvent, InboundRx, InboundTx, OutboundRx, OutboundTx};
 use crate::listener::Endpoint;
-use crate::noise::crypto::{PeerStaticSecret};
-
-#[derive(Debug)]
-enum Event {
-    Data(Vec<u8>),
-    EOF,
-}
-
-type InboundTx = mpsc::Sender<Event>;
-type InboundRx = mpsc::Receiver<Event>;
-type OutboundTx = mpsc::Sender<Event>;
-type OutboundRx = mpsc::Receiver<Event>;
-
-struct HandleLoop {
-    peer: Peer,
-    handles: Vec<JoinHandle<()>>,
-    inbound_tx: Option<InboundTx>,
-    outbound_tx: Option<OutboundTx>,
-}
-
-impl HandleLoop {
-    #[inline]
-    pub fn new(peer: Peer) -> Self {
-        Self {
-            peer,
-            handles: Vec::new(),
-            inbound_tx: None,
-            outbound_tx: None,
-        }
-    }
-
-    #[inline]
-    pub async fn start(&mut self) {
-        self.shutdown().await; // should return immediately
-
-        let (inbound_tx, inbound_rx) = mpsc::channel(256);
-        let (outbound_tx, outbound_rx) = mpsc::channel(256);
-
-        self.handles
-            .push(tokio::spawn(outbound_loop(self.peer.clone(), outbound_rx)));
-        self.handles
-            .push(tokio::spawn(inbound_loop(self.peer.clone(), inbound_rx)));
-        self.inbound_tx = Some(inbound_tx);
-        self.outbound_tx = Some(outbound_tx);
-    }
-
-    #[inline]
-    pub async fn shutdown(&mut self) {
-        if self.handles.is_empty() {
-            return;
-        }
-        if let Some(tx) = self.inbound_tx.take() {
-            tx.send(Event::EOF).await.unwrap();
-        }
-        if let Some(tx) = self.outbound_tx.take() {
-            tx.send(Event::EOF).await.unwrap();
-        }
-        join_all(self.handles.drain(..)).await;
-    }
-}
+use crate::noise::crypto::PeerStaticSecret;
+use crate::noise::handshake::IncomingInitiation;
+use crate::noise::protocol;
+use crate::Tun;
 
 struct Inner {
-    running: AtomicBool,
-    handle_loop: RwLock<HandleLoop>,
+    tun: Tun,
+    secret: PeerStaticSecret,
+    handshake: Handshake,
     endpoint: RwLock<Option<Endpoint>>,
+    inbound: InboundTx,
+    outbound: OutboundTx,
     tx_bytes: AtomicU64,
     rx_bytes: AtomicU64,
+}
+
+impl Inner {
+    pub fn new(tun: Tun, secret: PeerStaticSecret) -> Arc<Self> {
+        let (inbound_tx, inbound_rx) = mpsc::channel(256);
+        let (outbound_tx, outbound_rx) = mpsc::channel(256);
+        let handshake = Handshake::new(secret.clone());
+        let me = Arc::new(Self {
+            tun,
+            secret,
+            handshake,
+            endpoint: RwLock::new(None),
+            inbound: inbound_tx,
+            outbound: outbound_tx,
+            tx_bytes: AtomicU64::new(0),
+            rx_bytes: AtomicU64::new(0),
+        });
+
+        tokio::spawn(inbound_loop(me.clone(), inbound_rx));
+        tokio::spawn(outbound_loop(me.clone(), outbound_rx));
+
+        me
+    }
+
+    #[inline]
+    pub async fn stage_inbound(&self, e: InboundEvent) {
+        self.inbound.send(e).await.unwrap();
+    }
+
+    pub async fn send_buffer(&self, buf: &[u8]) -> Result<(), io::Error> {
+        let endpoint = self.endpoint.read().await;
+        match endpoint.as_ref() {
+            Some(endpoint) => endpoint.send(buf).await?,
+            None => return Err(io::Error::new(io::ErrorKind::Other, "not connected")),
+        }
+        self.tx_bytes
+            .fetch_add(buf.len() as u64, atomic::Ordering::Relaxed);
+
+        Ok(())
+    }
+}
+
+// Send to tun if we have a valid session
+async fn inbound_loop(inner: Arc<Inner>, mut rx: InboundRx) {
+    debug!("starting inbound loop for peer");
+
+    while let Some(event) = rx.recv().await {
+        match event {
+            InboundEvent::HanshakeInitiation(initiation) => {
+                // if let Ok((session, response)) = inner.handshake.respond(&initiation) {
+                // send directly?
+                // }
+            }
+            InboundEvent::HandshakeResponse(p) => {}
+            InboundEvent::CookieReply(p) => {}
+            InboundEvent::TransportData(p) => {}
+        }
+    }
+    debug!("exiting inbound loop for peer");
+}
+
+// Send to endpoint if connected, otherwise queue for later
+async fn outbound_loop(inner: Arc<Inner>, mut rx: OutboundRx) {
+    debug!("starting outbound loop for peer");
+
+    while let Some(event) = rx.recv().await {
+        match event {
+            _ => {}
+        }
+    }
+    debug!("exiting outbound loop for peer");
 }
 
 #[derive(Clone)]
@@ -86,94 +106,44 @@ pub struct Peer {
 }
 
 impl Peer {
-    pub fn new() -> Self {
-        unimplemented!()
-    }
-
-    async fn send_buffer(&mut self, buf: &[u8]) -> Result<(), io::Error> {
-        let endpoint = self.inner.endpoint.read().await;
-        match endpoint.as_ref() {
-            Some(endpoint) => endpoint.send(buf).await?,
-            None => return Err(io::Error::new(io::ErrorKind::Other, "not connected")),
+    pub fn new(tun: Tun, secret: PeerStaticSecret) -> Self {
+        Self {
+            inner: Inner::new(tun, secret),
         }
-        self.inner
-            .tx_bytes
-            .fetch_add(buf.len() as u64, atomic::Ordering::Relaxed);
-
-        Ok(())
-    }
-
-    pub async fn start(&self) -> Result<(), ()> {
-        debug!("starting peer");
-        let mut handle_loop = self.inner.handle_loop.write().await;
-
-        if self.inner.running.load(atomic::Ordering::Relaxed) {
-            return Err(());
-        }
-
-        handle_loop.start().await;
-
-        self.inner.running.store(true, atomic::Ordering::Relaxed);
-
-        Ok(())
-    }
-
-    pub async fn stop(&mut self) -> Result<(), ()> {
-        debug!("stopping peer");
-        let mut handle = self.inner.handle_loop.write().await;
-        if !self.inner.running.load(atomic::Ordering::Relaxed) {
-            return Ok(());
-        }
-
-        handle.shutdown().await;
-        self.inner.running.store(true, atomic::Ordering::Relaxed);
-
-        Ok(())
     }
 
     pub fn secret(&self) -> &PeerStaticSecret {
-        unimplemented!()
+        &self.inner.secret
     }
 
-    async fn send_keepalive(&mut self) {
-        if !self.inner.running.load(atomic::Ordering::Relaxed) {}
+    #[inline]
+    pub async fn handle_handshake_initiation(&self, initiation: IncomingInitiation) {
+        self.inner
+            .stage_inbound(InboundEvent::HanshakeInitiation(initiation))
+            .await;
+    }
+
+    #[inline]
+    pub async fn handle_handshake_response(&self, packet: protocol::HandshakeResponse) {
+        self.inner
+            .stage_inbound(InboundEvent::HandshakeResponse(packet))
+            .await;
+    }
+
+    #[inline]
+    pub async fn handle_cookie_reply(&mut self, packet: protocol::CookieReply) {
+        self.inner
+            .stage_inbound(InboundEvent::CookieReply(packet))
+            .await;
+    }
+
+    #[inline]
+    pub async fn handle_transport_data(&mut self, packet: protocol::TransportData) {
+        self.inner
+            .stage_inbound(InboundEvent::TransportData(packet))
+            .await;
     }
 
     // Stage outbound data to be sent to the peer
-    pub async fn stage_outbound(&mut self, buf: Bytes) {
-        let handle = self.inner.handle_loop.read().await;
-        if let Some(tx) = handle.outbound_tx.as_ref() {
-            tx.send(Event::Data(buf.to_vec())).await.unwrap(); // TODO try_send instead of blocking when channel is full
-        }
-    }
-}
-
-async fn outbound_loop(mut peer: Peer, mut rx: OutboundRx) {
-    debug!("starting outbound loop for peer");
-
-    while let Some(event) = rx.recv().await {
-        match event {
-            Event::Data(data) => {
-                peer.send_buffer(&data).await.unwrap();
-            }
-            Event::EOF => {
-                break;
-            }
-        }
-    }
-    debug!("exiting outbound loop for peer");
-}
-
-async fn inbound_loop(_peer: Peer, mut rx: InboundRx) {
-    debug!("starting inbound loop for peer");
-
-    while let Some(x) = rx.recv().await {
-        match x {
-            Event::Data(_msg) => {}
-            Event::EOF => {
-                break;
-            }
-        }
-    }
-    debug!("exiting inbound loop for peer");
+    pub async fn stage_outbound(&mut self, buf: Bytes) {}
 }

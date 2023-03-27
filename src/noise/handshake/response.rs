@@ -1,6 +1,7 @@
 use bytes::{BufMut, BytesMut};
 
 use super::{IncomingInitiation, OutgoingInitiation, LABEL_MAC1};
+use crate::noise::protocol::HandshakeResponse;
 use crate::noise::{
     crypto::{
         aead_decrypt, aead_encrypt, gen_ephemeral_key, hash, kdf1, kdf3, mac, EphermealPrivateKey,
@@ -70,35 +71,6 @@ impl OutgoingResponse {
     }
 }
 
-struct Packet {
-    sender_index: u32,
-    receiver_index: u32,
-    ephemeral_pub: [u8; 32],
-    empty: [u8; 16],
-    mac1: [u8; 16],
-    mac2: [u8; 16],
-}
-
-impl Packet {
-    pub fn parse(payload: &[u8]) -> Result<Self, Error> {
-        if payload.len() != PACKET_SIZE {
-            return Err(Error::InvalidKeyLength); // FIXME
-        }
-        if payload[0..4] != [MESSAGE_TYPE_HANDSHAKE_RESPONSE, 0, 0, 0] {
-            return Err(Error::InvalidKeyLength); // FIXME
-        }
-
-        Ok(Self {
-            sender_index: u32::from_le_bytes(payload[4..8].try_into().unwrap()),
-            receiver_index: u32::from_le_bytes(payload[8..12].try_into().unwrap()),
-            ephemeral_pub: payload[12..44].try_into().unwrap(),
-            empty: payload[44..60].try_into().unwrap(),
-            mac1: payload[60..76].try_into().unwrap(),
-            mac2: payload[76..92].try_into().unwrap(),
-        })
-    }
-}
-
 pub struct IncomingResponse {
     pub index: u32,
     pub ephemeral_public_key: PublicKey,
@@ -110,11 +82,9 @@ impl IncomingResponse {
     pub fn parse(
         initiation: &OutgoingInitiation,
         secret: &PeerStaticSecret,
-        payload: &[u8],
+        packet: &HandshakeResponse,
     ) -> Result<Self, Error> {
-        let packet = Packet::parse(payload)?;
-
-        let peer_ephemeral_pub = PublicKey::from(packet.ephemeral_pub);
+        let peer_ephemeral_pub = PublicKey::from(packet.ephemeral_public_key);
         let c = kdf1(peer_ephemeral_pub.as_bytes(), &initiation.chaining_key);
         let h = hash(&initiation.hash, peer_ephemeral_pub.as_bytes());
         let c = kdf1(

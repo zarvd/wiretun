@@ -126,6 +126,27 @@ impl Tun {
             }
         }
     }
+
+    pub async fn write(&self, buf: &[u8]) -> Result<(), Error> {
+        // FIXME
+        let mut guard = self.fd.writable().await?;
+        let ret = guard.try_io(|inner| unsafe {
+            let ret = libc::write(inner.as_raw_fd(), buf.as_ptr() as _, buf.len());
+            if ret < 0 {
+                Err::<usize, io::Error>(io::Error::last_os_error())
+            } else {
+                Ok(ret as usize)
+            }
+        });
+
+        match ret {
+            Ok(Ok(_)) => return Ok(()),
+            Ok(Err(e)) => return Err(e.into()),
+            _ => {}
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

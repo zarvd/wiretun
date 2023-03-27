@@ -5,4 +5,4 @@ pub mod protocol;
 mod timestamp;
 
 pub use error::Error;
-pub use protocol::MessageType;
+pub use protocol::Message;

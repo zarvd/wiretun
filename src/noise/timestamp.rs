@@ -3,6 +3,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 const BASE: u64 = 0x400000000000000a;
 const WHITENER_MASK: u32 = 0x1000000 - 1;
 
+#[derive(Debug)]
 pub struct Timestamp([u8; 12]);
 
 impl Timestamp {

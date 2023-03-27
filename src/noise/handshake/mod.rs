@@ -15,6 +15,7 @@ mod tests {
 
     use super::*;
     use crate::noise::crypto::{LocalStaticSecret, PeerStaticSecret};
+    use crate::noise::protocol::{HandshakeInitiation, HandshakeResponse};
 
     #[inline]
     fn gen_2_static_key() -> (PeerStaticSecret, PeerStaticSecret) {
@@ -35,7 +36,8 @@ mod tests {
         let (p1_i, _p2_i) = (42, 88);
 
         let (init_out, payload) = OutgoingInitiation::new(p1_i, &p1_key);
-        let init_in = IncomingInitiation::parse(p2_key.local(), &payload).unwrap();
+        let packet = HandshakeInitiation::try_from(payload.as_slice()).unwrap();
+        let init_in = IncomingInitiation::parse(p2_key.local(), &packet).unwrap();
 
         assert_eq!(init_in.index(), p1_i);
         assert_eq!(init_out.hash, init_in.hash);
@@ -48,13 +50,15 @@ mod tests {
         let (p1_i, p2_i) = (42, 88);
 
         let (init_out, payload) = OutgoingInitiation::new(p1_i, &p1_key);
-        let init_in = IncomingInitiation::parse(p2_key.local(), &payload).unwrap();
+        let packet = HandshakeInitiation::try_from(payload.as_slice()).unwrap();
+        let init_in = IncomingInitiation::parse(p2_key.local(), &packet).unwrap();
 
         assert_eq!(init_out.hash, init_in.hash);
         assert_eq!(init_out.chaining_key, init_in.chaining_key);
 
         let (resp_out, payload) = OutgoingResponse::new(&init_in, p2_i, &p2_key);
-        let resp_in = IncomingResponse::parse(&init_out, &p1_key, &payload).unwrap();
+        let packet = HandshakeResponse::try_from(payload.as_slice()).unwrap();
+        let resp_in = IncomingResponse::parse(&init_out, &p1_key, &packet).unwrap();
 
         assert_eq!(resp_in.index, p2_i);
         assert_eq!(resp_out.chaining_key, resp_in.chaining_key);

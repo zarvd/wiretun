@@ -37,6 +37,7 @@ impl LocalStaticSecret {
     }
 }
 
+#[derive(Clone)]
 pub struct PeerStaticSecret {
     local: LocalStaticSecret,
     public: PublicKey,

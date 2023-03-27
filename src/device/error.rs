@@ -6,4 +6,6 @@ pub enum Error {
     PeerAlreadyExists,
     #[error("IO Error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("Noise protocol error: {0}")]
+    Noise(#[from] crate::noise::Error),
 }
