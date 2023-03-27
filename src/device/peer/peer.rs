@@ -167,7 +167,10 @@ impl Inner {
         if !self.jitter.can_keepalive() {
             return;
         }
-        self.outbound.send(OutboundEvent::Data(vec![])).await;
+        self.outbound
+            .send(OutboundEvent::Data(vec![]))
+            .await
+            .unwrap();
     }
 
     #[inline]
@@ -244,16 +247,24 @@ async fn inbound_loop(inner: Arc<Inner>, mut rx: InboundRx) {
             InboundEvent::CookieReply { .. } => {}
             InboundEvent::TransportData {
                 endpoint,
-                packet: _,
+                packet,
                 session,
             } => {
                 {
                     let mut sessions = inner.sessions.write().unwrap();
-                    if sessions.rotate_next(session) {
+                    if sessions.rotate_next(session.clone()) {
                         // Handshake completed
                     }
                 }
+                if !session.can_accept(packet.counter) {
+                    debug!("dropping packet due to replay");
+                    continue;
+                }
                 inner.update_endpoint(endpoint.clone());
+
+                // TODO: decrypt and send to tun
+
+                session.can_accept(packet.counter);
             }
         }
     }
@@ -265,6 +276,7 @@ async fn outbound_loop(inner: Arc<Inner>, mut rx: OutboundRx) {
     debug!("starting outbound loop for peer");
 
     while let Some(OutboundEvent::Data(data)) = rx.recv().await {
+        // TODO: encrypt
         inner.send_outbound(&data).await;
         inner.jitter.mark_outbound(data.len() as _);
     }
