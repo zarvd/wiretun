@@ -1,6 +1,5 @@
-use std::io;
 use std::sync::{
-    atomic::{self, AtomicBool, AtomicU64},
+    atomic::{self, AtomicBool},
     Arc, RwLock,
 };
 
@@ -222,7 +221,7 @@ async fn inbound_loop(inner: Arc<Inner>, mut rx: InboundRx) {
             InboundEvent::HandshakeResponse {
                 endpoint,
                 packet,
-                session,
+                session: _,
             } => {
                 let ret = {
                     let mut handshake = inner.handshake.write().unwrap();
@@ -245,7 +244,7 @@ async fn inbound_loop(inner: Arc<Inner>, mut rx: InboundRx) {
             InboundEvent::CookieReply { .. } => {}
             InboundEvent::TransportData {
                 endpoint,
-                packet,
+                packet: _,
                 session,
             } => {
                 {

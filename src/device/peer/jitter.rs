@@ -1,6 +1,5 @@
-use std::ops::Add;
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
-use std::sync::RwLock;
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use std::time::{Duration, Instant};
 
 const REKEY_AFTER_MESSAGES: u64 = 1 << 60;
