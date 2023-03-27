@@ -1,5 +1,8 @@
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::fmt;
+use std::fmt::Formatter;
+use std::sync::atomic::AtomicU64;
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
 use crate::noise::crypto::PeerStaticSecret;
@@ -7,18 +10,17 @@ use crate::noise::crypto::PeerStaticSecret;
 #[derive(Clone, Debug)]
 pub struct Session {
     sender_index: u32,
+    sender_nonce: Arc<AtomicU64>,
     sender_key: [u8; 32],
     receiver_index: u32,
     receiver_key: [u8; 32],
+    nonce_filter: Arc<Mutex<NonceFilter>>,
     created_at: Instant,
 }
 
 impl PartialEq for Session {
     fn eq(&self, other: &Self) -> bool {
         self.sender_index == other.sender_index
-            && self.sender_key == other.sender_key
-            && self.receiver_index == other.receiver_index
-            && self.receiver_key == other.receiver_key
     }
 }
 
@@ -35,8 +37,10 @@ impl Session {
         Self {
             sender_index,
             sender_key,
+            sender_nonce: Arc::new(AtomicU64::new(0)),
             receiver_index,
             receiver_key,
+            nonce_filter: Arc::new(Mutex::new(NonceFilter::new())),
             created_at: Instant::now(),
         }
     }
@@ -44,6 +48,22 @@ impl Session {
     #[inline]
     fn noop() -> Self {
         Self::new(0, [0; 32], 0, [0; 32])
+    }
+
+    #[inline]
+    pub fn can_accept(&self, nonce: u64) -> bool {
+        self.nonce_filter.lock().unwrap().can_accept(nonce)
+    }
+
+    #[inline]
+    pub fn aceept(&self, nonce: u64) {
+        self.nonce_filter.lock().unwrap().accept(nonce)
+    }
+
+    #[inline]
+    pub fn next_nonce(&self) -> u64 {
+        self.sender_nonce
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
     }
 
     #[inline]
@@ -69,6 +89,111 @@ impl Session {
     #[inline]
     pub fn created_at(&self) -> Instant {
         self.created_at
+    }
+}
+
+const MAX_REPLAY_SIZE: usize = 1 << 10;
+
+struct NonceFilter {
+    next: u64,
+    accepted: u64,
+    bitmap: ([u64; MAX_REPLAY_SIZE / 64], usize),
+}
+
+impl NonceFilter {
+    pub fn new() -> Self {
+        Self {
+            next: 0,
+            accepted: 0,
+            bitmap: ([0u64; MAX_REPLAY_SIZE / 64], 0),
+        }
+    }
+
+    #[inline]
+    pub fn can_accept(&self, counter: u64) -> bool {
+        if counter >= self.next {
+            return true;
+        }
+
+        if counter + MAX_REPLAY_SIZE as u64 <= self.next {
+            return false;
+        }
+
+        !self.is_set(counter)
+    }
+
+    #[inline]
+    pub fn accept(&mut self, counter: u64) {
+        self.accepted += 1;
+        if counter < self.next {
+            self.set(counter);
+        } else if counter > self.next && (counter - self.next) as usize >= MAX_REPLAY_SIZE {
+            self.bitmap = ([0u64; MAX_REPLAY_SIZE / 64], 0);
+            self.next = counter + 1;
+            self.set(counter);
+        } else {
+            while self.next < counter {
+                self.advance();
+            }
+            self.advance();
+            self.set(counter);
+        }
+    }
+
+    #[inline]
+    fn advance(&mut self) {
+        if self.next > MAX_REPLAY_SIZE as u64 {
+            self.unset(self.next - MAX_REPLAY_SIZE as u64);
+        }
+        self.next += 1;
+        self.bitmap.1 = (self.bitmap.1 + 1) % MAX_REPLAY_SIZE;
+    }
+
+    #[inline]
+    fn bitmap_index(&self, i: u64) -> (usize, usize) {
+        let (_, next_idx) = &self.bitmap;
+        let i = {
+            let offset = (self.next - i) as usize;
+            if *next_idx >= offset {
+                *next_idx - offset
+            } else {
+                MAX_REPLAY_SIZE + *next_idx - offset
+            }
+        };
+        let word_idx = i / 64;
+        let bit_idx = i - word_idx * 64;
+        (word_idx, bit_idx)
+    }
+
+    #[inline]
+    fn is_set(&self, i: u64) -> bool {
+        let (word_idx, bit_idx) = self.bitmap_index(i);
+        self.bitmap.0[word_idx] & (1 << bit_idx) != 0
+    }
+
+    #[inline]
+    fn set(&mut self, i: u64) {
+        let (word_idx, bit_idx) = self.bitmap_index(i);
+        println!(
+            "set {} {} {} {} {}",
+            self.next, self.bitmap.1, i, word_idx, bit_idx
+        );
+        self.bitmap.0[word_idx] |= 1 << bit_idx;
+    }
+
+    #[inline]
+    fn unset(&mut self, i: u64) {
+        let (word_idx, bit_idx) = self.bitmap_index(i);
+        self.bitmap.0[word_idx] &= !(1 << bit_idx);
+    }
+}
+
+impl fmt::Debug for NonceFilter {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NonceFilter")
+            .field("next", &self.next)
+            .field("accepted", &self.accepted)
+            .finish()
     }
 }
 
@@ -179,5 +304,54 @@ impl SessionManager {
     fn remove(&self, session: &Session) -> Option<(Session, [u8; 32])> {
         let mut inner = self.inner.write().unwrap();
         inner.by_index.remove(&session.sender_index)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_nonce_filter() {
+        {
+            let mut filter = NonceFilter::new();
+            for i in 0..MAX_REPLAY_SIZE {
+                let i = i as u64;
+                assert!(filter.can_accept(i));
+                filter.accept(i);
+                assert!(!filter.can_accept(i));
+                assert_eq!(filter.accepted, i + 1);
+            }
+            assert_eq!(filter.bitmap.0, [u64::MAX; MAX_REPLAY_SIZE / 64]);
+        }
+
+        {
+            let mut filter = NonceFilter::new();
+            for i in 0..MAX_REPLAY_SIZE * 2 {
+                let i = i as u64;
+                assert!(filter.can_accept(i));
+                filter.accept(i);
+                assert!(!filter.can_accept(i));
+                assert_eq!(filter.accepted, i + 1);
+            }
+            for i in 0..MAX_REPLAY_SIZE {
+                let i = i as u64;
+                assert!(!filter.can_accept(i));
+            }
+        }
+
+        {
+            let mut filter = NonceFilter::new();
+            for i in MAX_REPLAY_SIZE..MAX_REPLAY_SIZE * 2 {
+                let i = i as u64;
+                assert!(filter.can_accept(i));
+                filter.accept(i);
+                assert!(!filter.can_accept(i), "should not accept {} again", i);
+            }
+            for i in 0..MAX_REPLAY_SIZE {
+                let i = i as u64;
+                assert!(!filter.can_accept(i));
+            }
+        }
     }
 }
