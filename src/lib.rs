@@ -4,7 +4,6 @@ mod config;
 mod device;
 mod listener;
 mod noise;
-mod timer;
 mod tun;
 mod uapi;
 

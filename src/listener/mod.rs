@@ -83,7 +83,7 @@ impl Display for Listener {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Endpoint {
     socket: Arc<UdpSocket>,
     src: SocketAddr,

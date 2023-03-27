@@ -103,22 +103,29 @@ async fn tick_inbound(inner: Arc<Inner>, listener: &mut Listener) {
                         .peers
                         .by_static_public_key(initiation.static_public_key.as_bytes())
                     {
-                        peer.handle_handshake_initiation(initiation).await;
+                        peer.handle_handshake_initiation(endpoint, initiation).await;
                     }
                 }
-                Ok(Message::HandshakeResponse(p)) => {
-                    if let Some(peer) = inner.peers.by_index(p.receiver_index) {
-                        peer.handle_handshake_response(p).await;
-                    }
-                }
-                Ok(Message::CookieReply(p)) => {
-                    if let Some(mut peer) = inner.peers.by_index(p.receiver_index) {
-                        peer.handle_cookie_reply(p).await;
-                    }
-                }
-                Ok(Message::TransportData(p)) => {
-                    if let Some(mut peer) = inner.peers.by_index(p.receiver_index) {
-                        peer.handle_transport_data(p).await;
+                Ok(msg) => {
+                    let receiver_index = match &msg {
+                        Message::HandshakeResponse(p) => p.receiver_index,
+                        Message::CookieReply(p) => p.receiver_index,
+                        Message::TransportData(p) => p.receiver_index,
+                        _ => unreachable!(),
+                    };
+                    if let Some((session, mut peer)) = inner.peers.by_index(receiver_index) {
+                        match msg {
+                            Message::HandshakeResponse(p) => {
+                                peer.handle_handshake_response(endpoint, p, session).await;
+                            }
+                            Message::CookieReply(p) => {
+                                peer.handle_cookie_reply(endpoint, p, session).await;
+                            }
+                            Message::TransportData(p) => {
+                                peer.handle_transport_data(endpoint, p, session).await;
+                            }
+                            _ => unreachable!(),
+                        }
                     }
                 }
                 Err(e) => {

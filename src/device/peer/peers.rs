@@ -3,6 +3,7 @@ use std::sync::RwLock;
 
 use bytes::Bytes;
 
+use super::session::{Session, SessionManager};
 use super::Peer;
 use crate::noise::crypto::LocalStaticSecret;
 use crate::Tun;
@@ -10,9 +11,9 @@ use crate::Tun;
 pub struct Peers {
     tun: Tun,
     secret: LocalStaticSecret,
+    session_mgr: SessionManager,
     by_static_public_key: RwLock<HashMap<[u8; 32], Peer>>,
     by_allowed_ips: RwLock<HashMap<Bytes, Peer>>,
-    by_index: RwLock<HashMap<u32, Peer>>,
 }
 
 impl Peers {
@@ -22,14 +23,18 @@ impl Peers {
             secret,
             by_static_public_key: RwLock::new(HashMap::new()),
             by_allowed_ips: RwLock::new(HashMap::new()),
-            by_index: RwLock::new(HashMap::new()),
+            session_mgr: SessionManager::new(),
         }
     }
 
     pub fn insert(&self, public_key: [u8; 32], allowed_ips: &[Bytes]) {
         let mut by_static_public_key = self.by_static_public_key.write().unwrap();
         let peer = by_static_public_key.entry(public_key).or_insert_with(|| {
-            Peer::new(self.tun.clone(), self.secret.clone().with_peer(public_key))
+            Peer::new(
+                self.tun.clone(),
+                self.secret.clone().with_peer(public_key),
+                self.session_mgr.clone(),
+            )
         });
 
         let mut by_allowed_ips = self.by_allowed_ips.write().unwrap();
@@ -48,8 +53,12 @@ impl Peers {
         index.get(&ip).cloned()
     }
 
-    pub fn by_index(&self, i: u32) -> Option<Peer> {
-        let index = self.by_index.read().unwrap();
-        index.get(&i).cloned()
+    pub fn by_index(&self, i: u32) -> Option<(Session, Peer)> {
+        match self.session_mgr.get_by_index(i) {
+            Some((session, pub_key)) => self
+                .by_static_public_key(&pub_key)
+                .map(|peer| (session, peer)),
+            None => None,
+        }
     }
 }
