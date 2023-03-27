@@ -56,6 +56,7 @@ impl Handshake {
     }
 
     fn tick_local_index(&mut self) -> u32 {
+        // FIXME: use global index to avoid collision
         self.local_index = self.local_index.wrapping_add(1);
         self.local_index
     }

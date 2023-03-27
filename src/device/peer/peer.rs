@@ -1,10 +1,9 @@
 use std::io;
 use std::sync::{
-    atomic::{self, AtomicU64},
+    atomic::{self, AtomicBool, AtomicU64},
     Arc, RwLock,
 };
 
-use crate::device::peer::OutboundEvent;
 use bytes::Bytes;
 use tokio::sync::mpsc;
 use tokio::time;
@@ -12,175 +11,14 @@ use tracing::debug;
 
 use super::session::{Session, SessionManager, Sessions};
 use super::{
-    handshake::Handshake, InboundEvent, InboundRx, InboundTx, Jitter, OutboundRx, OutboundTx,
+    handshake::Handshake, InboundEvent, InboundRx, InboundTx, Jitter, OutboundEvent, OutboundRx,
+    OutboundTx,
 };
 use crate::listener::Endpoint;
 use crate::noise::crypto::PeerStaticSecret;
 use crate::noise::handshake::IncomingInitiation;
 use crate::noise::protocol;
 use crate::Tun;
-
-struct Inner {
-    tun: Tun,
-    secret: PeerStaticSecret,
-    sessions: RwLock<Sessions>,
-    handshake: RwLock<Handshake>,
-    endpoint: RwLock<Option<Endpoint>>,
-    inbound: InboundTx,
-    outbound: OutboundTx,
-    tx_bytes: AtomicU64,
-    rx_bytes: AtomicU64,
-}
-
-impl Inner {
-    pub fn new(tun: Tun, secret: PeerStaticSecret, session_mgr: SessionManager) -> Arc<Self> {
-        let (inbound_tx, inbound_rx) = mpsc::channel(256);
-        let (outbound_tx, outbound_rx) = mpsc::channel(256);
-        let handshake = RwLock::new(Handshake::new(secret.clone()));
-        let sessions = RwLock::new(Sessions::new(secret.clone(), session_mgr));
-        let me = Arc::new(Self {
-            tun,
-            secret,
-            handshake,
-            sessions,
-            endpoint: RwLock::new(None),
-            inbound: inbound_tx,
-            outbound: outbound_tx,
-            tx_bytes: AtomicU64::new(0),
-            rx_bytes: AtomicU64::new(0),
-        });
-
-        let jitter = Arc::new(Jitter::new());
-        tokio::spawn(keepalive_loop(me.clone(), jitter.clone()));
-        tokio::spawn(handshake_loop(me.clone(), jitter.clone()));
-        tokio::spawn(inbound_loop(me.clone(), inbound_rx));
-        tokio::spawn(outbound_loop(me.clone(), jitter, outbound_rx));
-
-        me
-    }
-
-    #[inline]
-    pub async fn stage_inbound(&self, e: InboundEvent) {
-        self.inbound.send(e).await.unwrap();
-    }
-
-    #[inline]
-    pub async fn stage_outbound(&self, e: OutboundEvent) {
-        self.outbound.send(e).await.unwrap();
-    }
-
-    pub async fn send_buffer(&self, buf: &[u8]) -> Result<(), io::Error> {
-        let endpoint = { self.endpoint.read().unwrap().clone() };
-        match endpoint {
-            Some(endpoint) => endpoint.send(buf).await?,
-            None => return Err(io::Error::new(io::ErrorKind::Other, "not connected")),
-        }
-        self.tx_bytes
-            .fetch_add(buf.len() as u64, atomic::Ordering::Relaxed);
-
-        Ok(())
-    }
-
-    #[inline]
-    fn update_endpoint(&self, endpoint: Endpoint) {
-        let mut guard = self.endpoint.write().unwrap();
-        let _ = guard.insert(endpoint);
-    }
-}
-
-async fn handshake_loop(inner: Arc<Inner>, jitter: Arc<Jitter>) {
-    todo!("stop when peer is dropped");
-    loop {
-        if jitter.can_send_handshake_initiation() {
-            todo!("send handshake");
-
-            jitter.mark_send_handshake_initiation();
-        }
-        time::sleep(jitter.handshake_initiation_timeout()).await;
-    }
-}
-
-async fn keepalive_loop(inner: Arc<Inner>, jitter: Arc<Jitter>) {
-    todo!("stop when peer is dropped");
-    loop {
-        if jitter.can_send_keepalive() {
-            todo!("send keep alive");
-
-            jitter.mark_send_data();
-        }
-        time::sleep(jitter.keepalive_timeout()).await;
-    }
-}
-
-// Send to tun if we have a valid session
-async fn inbound_loop(inner: Arc<Inner>, mut rx: InboundRx) {
-    debug!("starting inbound loop for peer");
-
-    while let Some(event) = rx.recv().await {
-        match event {
-            InboundEvent::HanshakeInitiation {
-                endpoint,
-                initiation,
-            } => {
-                let ret = {
-                    let mut handshake = inner.handshake.write().unwrap();
-                    handshake.respond(&initiation)
-                };
-                match ret {
-                    Ok((session, packet)) => {
-                        {
-                            let mut sessions = inner.sessions.write().unwrap();
-                            sessions.renew(session);
-                        }
-                        inner.update_endpoint(endpoint.clone());
-                        endpoint.send(&packet).await.unwrap();
-                    }
-                    Err(e) => {
-                        debug!("failed to respond to handshake initiation: {}", e);
-                    }
-                }
-            }
-            InboundEvent::HandshakeResponse {
-                endpoint,
-                packet,
-                session,
-            } => {
-                let ret = {
-                    let mut handshake = inner.handshake.write().unwrap();
-                    handshake.finalize(&packet)
-                };
-                match ret {
-                    Ok(session) => {
-                        {
-                            let mut sessions = inner.sessions.write().unwrap();
-                            sessions.renew(session);
-                        }
-                        inner.update_endpoint(endpoint.clone());
-                    }
-                    Err(e) => {
-                        debug!("failed to finalize handshake: {}", e);
-                    }
-                }
-            }
-            InboundEvent::CookieReply { .. } => {}
-            InboundEvent::TransportData { .. } => {}
-        }
-    }
-    debug!("exiting inbound loop for peer");
-}
-
-// Send to endpoint if connected, otherwise queue for later
-async fn outbound_loop(inner: Arc<Inner>, jitter: Arc<Jitter>, mut rx: OutboundRx) {
-    debug!("starting outbound loop for peer");
-
-    while let Some(OutboundEvent::Data(data)) = rx.recv().await {
-        let endpoint = { inner.endpoint.read().unwrap().clone() };
-        if let Some(endpoint) = endpoint {
-            endpoint.send(&data).await.unwrap();
-        }
-    }
-    debug!("exiting outbound loop for peer");
-}
 
 #[derive(Clone)]
 pub struct Peer {
@@ -262,4 +100,174 @@ impl Peer {
 
     // Stage outbound data to be sent to the peer
     pub async fn stage_outbound(&mut self, _buf: Bytes) {}
+}
+
+impl Drop for Peer {
+    fn drop(&mut self) {
+        self.inner.running.store(false, atomic::Ordering::Relaxed);
+    }
+}
+
+struct Inner {
+    running: AtomicBool,
+    tun: Tun,
+    secret: PeerStaticSecret,
+    sessions: RwLock<Sessions>,
+    handshake: RwLock<Handshake>,
+    endpoint: RwLock<Option<Endpoint>>,
+    inbound: InboundTx,
+    outbound: OutboundTx,
+    jitter: Jitter,
+}
+
+impl Inner {
+    pub fn new(tun: Tun, secret: PeerStaticSecret, session_mgr: SessionManager) -> Arc<Self> {
+        let (inbound_tx, inbound_rx) = mpsc::channel(256);
+        let (outbound_tx, outbound_rx) = mpsc::channel(256);
+        let handshake = RwLock::new(Handshake::new(secret.clone()));
+        let sessions = RwLock::new(Sessions::new(secret.clone(), session_mgr));
+        let me = Arc::new(Self {
+            running: AtomicBool::new(true),
+            tun,
+            secret,
+            handshake,
+            sessions,
+            endpoint: RwLock::new(None),
+            inbound: inbound_tx,
+            outbound: outbound_tx,
+            jitter: Jitter::new(),
+        });
+
+        tokio::spawn(handshake_loop(me.clone()));
+        tokio::spawn(inbound_loop(me.clone(), inbound_rx));
+        tokio::spawn(outbound_loop(me.clone(), outbound_rx));
+
+        me
+    }
+
+    #[inline]
+    pub async fn stage_inbound(&self, e: InboundEvent) {
+        self.inbound.send(e).await.unwrap();
+    }
+
+    #[inline]
+    pub async fn stage_outbound(&self, e: OutboundEvent) {
+        self.outbound.send(e).await.unwrap();
+    }
+
+    #[inline]
+    pub async fn send_outbound(&self, buf: &[u8]) {
+        let endpoint = { self.endpoint.read().unwrap().clone() };
+        if let Some(endpoint) = endpoint {
+            endpoint.send(buf).await.unwrap();
+        }
+    }
+
+    #[inline]
+    pub async fn keepalive(&self) {
+        if !self.jitter.can_keepalive() {
+            return;
+        }
+        self.outbound.send(OutboundEvent::Data(vec![])).await;
+    }
+
+    #[inline]
+    pub fn update_endpoint(&self, endpoint: Endpoint) {
+        let mut guard = self.endpoint.write().unwrap();
+        let _ = guard.insert(endpoint);
+    }
+}
+
+async fn handshake_loop(inner: Arc<Inner>) {
+    while inner.running.load(atomic::Ordering::Relaxed) {
+        if inner.jitter.can_handshake_initiation() {
+            let packet = inner.handshake.write().unwrap().initiate();
+            inner.send_outbound(&packet).await; // send directly
+
+            inner.jitter.mark_handshake_initiation();
+        }
+        time::sleep_until(inner.jitter.next_handshake_initiation_at().into()).await;
+    }
+    // close all loop
+}
+
+// Send to tun if we have a valid session
+async fn inbound_loop(inner: Arc<Inner>, mut rx: InboundRx) {
+    debug!("starting inbound loop for peer");
+
+    while let Some(event) = rx.recv().await {
+        match event {
+            InboundEvent::HanshakeInitiation {
+                endpoint,
+                initiation,
+            } => {
+                let ret = {
+                    let mut handshake = inner.handshake.write().unwrap();
+                    handshake.respond(&initiation)
+                };
+                match ret {
+                    Ok((session, packet)) => {
+                        {
+                            let mut sessions = inner.sessions.write().unwrap();
+                            sessions.renew_current(session);
+                        }
+                        inner.update_endpoint(endpoint.clone());
+                        endpoint.send(&packet).await.unwrap();
+                    }
+                    Err(e) => {
+                        debug!("failed to respond to handshake initiation: {}", e);
+                    }
+                }
+            }
+            InboundEvent::HandshakeResponse {
+                endpoint,
+                packet,
+                session,
+            } => {
+                let ret = {
+                    let mut handshake = inner.handshake.write().unwrap();
+                    handshake.finalize(&packet)
+                };
+                match ret {
+                    Ok(session) => {
+                        {
+                            let mut sessions = inner.sessions.write().unwrap();
+                            sessions.prepare_next(session);
+                        }
+                        inner.update_endpoint(endpoint.clone());
+                        inner.keepalive().await; // let the peer know the session is valid
+                    }
+                    Err(e) => {
+                        debug!("failed to finalize handshake: {}", e);
+                    }
+                }
+            }
+            InboundEvent::CookieReply { .. } => {}
+            InboundEvent::TransportData {
+                endpoint,
+                packet,
+                session,
+            } => {
+                {
+                    let mut sessions = inner.sessions.write().unwrap();
+                    if sessions.rotate_next(session) {
+                        // Handshake completed
+                    }
+                }
+                inner.update_endpoint(endpoint.clone());
+            }
+        }
+    }
+    debug!("exiting inbound loop for peer");
+}
+
+// Send to endpoint if connected, otherwise queue for later
+async fn outbound_loop(inner: Arc<Inner>, mut rx: OutboundRx) {
+    debug!("starting outbound loop for peer");
+
+    while let Some(OutboundEvent::Data(data)) = rx.recv().await {
+        inner.send_outbound(&data).await;
+        inner.jitter.mark_outbound(data.len() as _);
+    }
+    debug!("exiting outbound loop for peer");
 }
