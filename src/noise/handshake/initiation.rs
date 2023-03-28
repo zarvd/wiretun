@@ -1,10 +1,10 @@
 use bytes::{BufMut, BytesMut};
 
-use super::{CONSTRUCTION, IDENTIFIER, LABEL_MAC1};
+use super::{Cookie, CONSTRUCTION, IDENTIFIER};
 use crate::noise::crypto::{EphermealPrivateKey, LocalStaticSecret, PeerStaticSecret, PublicKey};
 use crate::noise::protocol::HandshakeInitiation;
 use crate::noise::{
-    crypto::{aead_decrypt, aead_encrypt, gen_ephemeral_key, hash, kdf1, kdf2, mac},
+    crypto::{aead_decrypt, aead_encrypt, gen_ephemeral_key, hash, kdf1, kdf2},
     timestamp::Timestamp,
     Error,
 };
@@ -20,7 +20,11 @@ pub struct OutgoingInitiation {
 }
 
 impl OutgoingInitiation {
-    pub fn new(sender_index: u32, secret: &PeerStaticSecret) -> (Self, Vec<u8>) {
+    pub fn new(
+        sender_index: u32,
+        secret: &PeerStaticSecret,
+        cookie: &mut Cookie,
+    ) -> (Self, Vec<u8>) {
         let mut buf = BytesMut::with_capacity(PACKET_SIZE);
 
         buf.put_u32_le(MESSAGE_TYPE_HANDSHAKE_INITIATION as _);
@@ -52,13 +56,8 @@ impl OutgoingInitiation {
         let h = hash(&h, &timestamp);
 
         // mac1 and mac2
-        let mac1 = mac(
-            &hash(&LABEL_MAC1, secret.local().public_key().as_bytes()),
-            &buf,
-        );
-        buf.put_slice(&mac1); // 16 bytes
-        let mac2 = [0u8; 16]; // TODO: calculate with cookie
-        buf.put_slice(&mac2); // 16 bytes
+        buf.put_slice(&cookie.generate_mac1(&buf)); // 16 bytes
+        buf.put_slice(&cookie.generate_mac2(&buf)); // 16 bytes
 
         let payload = buf.freeze().to_vec();
         (
@@ -123,9 +122,5 @@ impl IncomingInitiation {
             ephemeral_public_key: peer_ephemeral_pub,
             static_public_key: peer_static_pub,
         })
-    }
-
-    pub fn index(&self) -> u32 {
-        self.index
     }
 }

@@ -73,3 +73,11 @@ impl Peers {
         }
     }
 }
+
+impl Drop for Peers {
+    fn drop(&mut self) {
+        for peer in self.by_static_public_key.write().unwrap().values() {
+            peer.stop();
+        }
+    }
+}

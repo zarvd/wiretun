@@ -182,7 +182,6 @@ impl Jitter {
 
     #[inline]
     pub fn can_keepalive(&self) -> bool {
-        // TODO: should check if outbound queue is empty
         self.data.can_keepalive()
     }
 

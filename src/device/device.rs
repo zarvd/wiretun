@@ -12,6 +12,7 @@ use tracing::{debug, error, warn};
 
 use super::peer::Peers;
 use super::Error;
+use crate::listener::Endpoint;
 use crate::noise::crypto::LocalStaticSecret;
 use crate::noise::handshake::IncomingInitiation;
 use crate::noise::protocol::Message;
@@ -128,55 +129,56 @@ async fn loop_inbound(inner: Arc<Inner>, mut listener: Listener, stop_notify: Ar
                 debug!("stopping outbound loop for {}", listener);
                 return;
             }
-            _ = tick_inbound(inner.clone(), &mut listener) => {}
+            data = listener.next() => {
+                if let Some((endpoint, payload)) = data {
+                    tick_inbound(inner.clone(), endpoint, payload).await;
+                }
+            }
         }
     }
 }
 
 #[inline]
-async fn tick_inbound(inner: Arc<Inner>, listener: &mut Listener) {
-    match listener.next().await {
-        Some((endpoint, data)) => match Message::parse(&data) {
-            Ok(Message::HandshakeInitiation(p)) => {
-                let initiation =
-                    IncomingInitiation::parse(&inner.secret, &p).unwrap_or_else(|_| todo!());
-                if let Some(peer) = inner
-                    .peers
-                    .by_static_public_key(initiation.static_public_key.as_bytes())
-                {
-                    peer.handle_handshake_initiation(endpoint, initiation).await;
-                }
+async fn tick_inbound(inner: Arc<Inner>, endpoint: Endpoint, payload: Vec<u8>) {
+    match Message::parse(&payload) {
+        Ok(Message::HandshakeInitiation(p)) => {
+            let initiation =
+                IncomingInitiation::parse(&inner.secret, &p).unwrap_or_else(|_| todo!());
+            if let Some(peer) = inner
+                .peers
+                .by_static_public_key(initiation.static_public_key.as_bytes())
+            {
+                peer.handle_handshake_initiation(endpoint, &payload, initiation)
+                    .await;
             }
-            Ok(msg) => {
-                let receiver_index = match &msg {
-                    Message::HandshakeResponse(p) => p.receiver_index,
-                    Message::CookieReply(p) => p.receiver_index,
-                    Message::TransportData(p) => p.receiver_index,
-                    _ => unreachable!(),
-                };
-                if let Some((session, mut peer)) = inner.peers.by_index(receiver_index) {
-                    match msg {
-                        Message::HandshakeResponse(p) => {
-                            peer.handle_handshake_response(endpoint, p, session).await;
-                        }
-                        Message::CookieReply(p) => {
-                            peer.handle_cookie_reply(endpoint, p, session).await;
-                        }
-                        Message::TransportData(p) => {
-                            peer.handle_transport_data(endpoint, p, session).await;
-                        }
-                        _ => unreachable!(),
+        }
+        Ok(msg) => {
+            let receiver_index = match &msg {
+                Message::HandshakeResponse(p) => p.receiver_index,
+                Message::CookieReply(p) => p.receiver_index,
+                Message::TransportData(p) => p.receiver_index,
+                _ => unreachable!(),
+            };
+            if let Some((session, peer)) = inner.peers.by_index(receiver_index) {
+                match msg {
+                    Message::HandshakeResponse(p) => {
+                        peer.handle_handshake_response(endpoint, p, &payload, session)
+                            .await;
                     }
-                } else {
-                    warn!("received message for unknown peer {receiver_index}");
+                    Message::CookieReply(p) => {
+                        peer.handle_cookie_reply(endpoint, p, session).await;
+                    }
+                    Message::TransportData(p) => {
+                        peer.handle_transport_data(endpoint, p, session).await;
+                    }
+                    _ => unreachable!(),
                 }
+            } else {
+                warn!("received message for unknown peer {receiver_index}");
             }
-            Err(e) => {
-                warn!("failed to parse message type: {:?}", e);
-            }
-        },
-        None => {
-            error!("listener error");
+        }
+        Err(e) => {
+            warn!("failed to parse message type: {:?}", e);
         }
     }
 }
