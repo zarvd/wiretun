@@ -33,12 +33,12 @@ impl OutgoingInitiation {
         let c = hash(&CONSTRUCTION, b"");
         let h = hash(&hash(&c, &IDENTIFIER), secret.public_key().as_bytes());
         let (ephemeral_pri, ephemeral_pub) = gen_ephemeral_key();
-        let c = kdf1(ephemeral_pub.as_bytes(), &c);
+        let c = kdf1(&c, ephemeral_pub.as_bytes());
         buf.put_slice(ephemeral_pub.as_bytes()); // 32 bytes
         let h = hash(&h, ephemeral_pub.as_bytes());
         let (c, k) = kdf2(
-            ephemeral_pri.diffie_hellman(secret.public_key()).as_bytes(),
             &c,
+            ephemeral_pri.diffie_hellman(secret.public_key()).as_bytes(),
         );
         let static_key = aead_encrypt(&k, 0, secret.local().public_key().as_bytes(), &h).unwrap();
         buf.put_slice(&static_key); // 32 + 16 bytes
@@ -87,14 +87,14 @@ impl IncomingInitiation {
         let c = hash(&CONSTRUCTION, b"");
         let h = hash(&hash(&c, &IDENTIFIER), secret.public_key().as_bytes());
         let peer_ephemeral_pub = PublicKey::from(packet.ephemeral_public_key);
-        let c = kdf1(&packet.ephemeral_public_key, &c);
+        let c = kdf1(&c, &packet.ephemeral_public_key);
         let h = hash(&h, &packet.ephemeral_public_key);
         let (c, k) = kdf2(
+            &c,
             secret
                 .private_key()
                 .diffie_hellman(&peer_ephemeral_pub)
                 .as_bytes(),
-            &c,
         );
         let static_key: [u8; 32] = aead_decrypt(&k, 0, &packet.static_public_key, &h)?
             .try_into()

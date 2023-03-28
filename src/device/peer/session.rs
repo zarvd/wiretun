@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fmt;
-use std::fmt::Formatter;
+use std::fmt::{Debug, Formatter};
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
@@ -9,7 +9,7 @@ use crate::device::Error;
 use crate::noise::crypto::PeerStaticSecret;
 use crate::noise::{crypto, protocol};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Session {
     sender_index: u32,
     sender_nonce: Arc<AtomicU64>,
@@ -101,6 +101,15 @@ impl Session {
     #[inline]
     pub fn created_at(&self) -> Instant {
         self.created_at
+    }
+}
+
+impl Debug for Session {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Session")
+            .field("sender_index", &self.sender_index)
+            .field("receiver_index", &self.receiver_index)
+            .finish()
     }
 }
 

@@ -33,19 +33,19 @@ impl OutgoingResponse {
         buf.put_u32_le(initiation.index);
         let (ephemeral_pri, ephemeral_pub) = gen_ephemeral_key();
         buf.put_slice(ephemeral_pub.as_bytes()); // 32 bytes
-        let c = kdf1(ephemeral_pub.as_bytes(), &initiation.chaining_key);
+        let c = kdf1(&initiation.chaining_key, ephemeral_pub.as_bytes());
         let h = hash(&initiation.hash, ephemeral_pub.as_bytes());
         let c = kdf1(
+            &c,
             ephemeral_pri
                 .diffie_hellman(&initiation.ephemeral_public_key)
                 .as_bytes(),
-            &c,
         );
         let c = kdf1(
-            ephemeral_pri.diffie_hellman(secret.public_key()).as_bytes(),
             &c,
+            ephemeral_pri.diffie_hellman(secret.public_key()).as_bytes(),
         );
-        let (c, t, k) = kdf3(secret.psk(), &c);
+        let (c, t, k) = kdf3(&c, secret.psk());
         let h = hash(&h, &t);
         let empty = aead_encrypt(&k, 0, &[], &h).unwrap();
         buf.put_slice(&empty); // 16 bytes
@@ -81,24 +81,24 @@ impl IncomingResponse {
         packet: &HandshakeResponse,
     ) -> Result<Self, Error> {
         let peer_ephemeral_pub = PublicKey::from(packet.ephemeral_public_key);
-        let c = kdf1(peer_ephemeral_pub.as_bytes(), &initiation.chaining_key);
+        let c = kdf1(&initiation.chaining_key, peer_ephemeral_pub.as_bytes());
         let h = hash(&initiation.hash, peer_ephemeral_pub.as_bytes());
         let c = kdf1(
+            &c,
             initiation
                 .ephemeral_private_key
                 .diffie_hellman(&peer_ephemeral_pub)
                 .as_bytes(),
-            &c,
         );
         let c = kdf1(
+            &c,
             secret
                 .local()
                 .private_key()
                 .diffie_hellman(&peer_ephemeral_pub)
                 .as_bytes(),
-            &c,
         );
-        let (c, t, k) = kdf3(secret.psk(), &c);
+        let (c, t, k) = kdf3(&c, secret.psk());
         let h = hash(&h, &t);
         let empty = aead_decrypt(&k, 0, &packet.empty, &h)?;
         if !empty.is_empty() {
