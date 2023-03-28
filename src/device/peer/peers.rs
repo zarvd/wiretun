@@ -1,9 +1,6 @@
 use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use std::sync::RwLock;
-
-use bytes::Bytes;
-use tracing::debug;
 
 use super::session::{Session, SessionManager};
 use super::Peer;
@@ -48,7 +45,7 @@ impl Peers {
 
         let mut by_allowed_ips = self.by_allowed_ips.write().unwrap();
         for allowed_ip in allowed_ips {
-            by_allowed_ips.insert(allowed_ip.clone(), peer.clone());
+            by_allowed_ips.insert(*allowed_ip, peer.clone());
         }
 
         peer.clone()

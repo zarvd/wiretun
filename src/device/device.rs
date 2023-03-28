@@ -4,7 +4,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use bytes::Bytes;
 use futures::future::join_all;
 use futures::StreamExt;
 use tokio::sync::Notify;
@@ -16,7 +15,7 @@ use super::Error;
 use crate::noise::crypto::LocalStaticSecret;
 use crate::noise::handshake::IncomingInitiation;
 use crate::noise::protocol::Message;
-use crate::{Listener, Tun};
+use crate::{uapi, Listener, Tun};
 
 const MAX_PEERS: usize = 1 << 16;
 
@@ -75,7 +74,7 @@ impl Device {
             } else {
                 None
             };
-            let mut p = self
+            let _p = self
                 .inner
                 .peers
                 .insert(cfg.static_public_key, &cfg.allowed_ips, endpoint);
@@ -88,6 +87,13 @@ impl Device {
                 stop_notify.clone(),
             )));
         }
+
+        let uapi = uapi::Listener::bind(self.inner.tun.name());
+        handles.push(tokio::spawn(loop_uapi(
+            self.inner.clone(),
+            uapi,
+            stop_notify.clone(),
+        )));
 
         Ok(Handle {
             handles,
@@ -188,7 +194,6 @@ async fn loop_outbound(inner: Arc<Inner>, stop_notify: Arc<Notify>) {
     }
 }
 
-#[inline]
 async fn tick_outbound(inner: Arc<Inner>) {
     const IPV4_HEADER_LEN: usize = 20;
     const IPV6_HEADER_LEN: usize = 40;
@@ -218,12 +223,36 @@ async fn tick_outbound(inner: Arc<Inner>) {
 
             let peer = inner.peers.by_allow_ip(dst);
 
-            if let Some(mut peer) = peer {
+            if let Some(peer) = peer {
                 peer.stage_outbound(buf).await
             }
         }
         Err(e) => {
             error!("TUN read error: {}", e)
+        }
+    }
+}
+
+async fn loop_uapi(inner: Arc<Inner>, uapi: uapi::Listener, stop_notify: Arc<Notify>) {
+    debug!("starting uapi loop");
+    loop {
+        tokio::select! {
+            _ = stop_notify.notified() => {
+                debug!("stopping uapi loop");
+                return;
+            }
+            conn = uapi.accept() => {
+                match conn {
+                    Ok(_conn) => {
+                        debug!("accepted uapi connection");
+                        let _inner = inner.clone();
+                        tokio::spawn(async move {
+                            // loop conn opeartion and respond
+                        });
+                    }
+                    Err(_) => {}
+                }
+            }
         }
     }
 }

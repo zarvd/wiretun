@@ -10,12 +10,12 @@ const REKEY_ATTEMPT_TIME: Duration = Duration::from_secs(90);
 const REKEY_TIMEOUT: Duration = Duration::from_secs(5);
 pub const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(10);
 
-struct Timer {
+struct AtomicInstant {
     epoch: Instant,
     d: AtomicU64,
 }
 
-impl Timer {
+impl AtomicInstant {
     #[inline]
     pub fn new(epoch: Instant) -> Self {
         Self {
@@ -66,18 +66,18 @@ impl Timer {
 }
 
 struct HandshakeJitter {
-    last_attempt_at: Timer,
-    last_complete_at: Timer,
-    attempt_before: Timer,
+    last_attempt_at: AtomicInstant,
+    last_complete_at: AtomicInstant,
+    attempt_before: AtomicInstant,
 }
 
 impl HandshakeJitter {
     #[inline]
     pub fn new(epoch: Instant) -> Self {
         Self {
-            last_attempt_at: Timer::new(epoch),
-            last_complete_at: Timer::new(epoch - REJECT_AFTER_TIME),
-            attempt_before: Timer::with_duration(epoch, REKEY_ATTEMPT_TIME),
+            last_attempt_at: AtomicInstant::new(epoch),
+            last_complete_at: AtomicInstant::new(epoch - REJECT_AFTER_TIME),
+            attempt_before: AtomicInstant::with_duration(epoch, REKEY_ATTEMPT_TIME),
         }
     }
 
@@ -130,7 +130,7 @@ impl HandshakeJitter {
 }
 
 struct TransportDataJitter {
-    last_sent_at: Timer,
+    last_sent_at: AtomicInstant,
     tx_messages: AtomicU64,
     rx_messages: AtomicU64,
     tx_bytes: AtomicU64,
@@ -140,7 +140,7 @@ struct TransportDataJitter {
 impl TransportDataJitter {
     pub fn new(epoch: Instant) -> Self {
         Self {
-            last_sent_at: Timer::new(epoch - KEEPALIVE_TIMEOUT),
+            last_sent_at: AtomicInstant::new(epoch - KEEPALIVE_TIMEOUT),
             tx_messages: AtomicU64::new(0),
             rx_messages: AtomicU64::new(0),
             tx_bytes: AtomicU64::new(0),
