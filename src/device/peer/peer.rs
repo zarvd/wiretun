@@ -25,10 +25,18 @@ pub struct Peer {
 }
 
 impl Peer {
-    pub(super) fn new(tun: Tun, secret: PeerStaticSecret, session_mgr: SessionManager) -> Self {
-        Self {
-            inner: Inner::new(tun, secret, session_mgr),
+    pub(super) fn new(
+        tun: Tun,
+        secret: PeerStaticSecret,
+        session_mgr: SessionManager,
+        endpoint: Option<Endpoint>,
+    ) -> Self {
+        let inner = Inner::new(tun, secret, session_mgr);
+        if let Some(endpoint) = endpoint {
+            inner.update_endpoint(endpoint);
         }
+
+        Self { inner }
     }
 
     pub fn secret(&self) -> &PeerStaticSecret {
@@ -101,12 +109,6 @@ impl Peer {
     pub async fn stage_outbound(&mut self, _buf: Bytes) {}
 }
 
-impl Drop for Peer {
-    fn drop(&mut self) {
-        self.inner.running.store(false, atomic::Ordering::Relaxed);
-    }
-}
-
 struct Inner {
     running: AtomicBool,
     tun: Tun,
@@ -156,9 +158,12 @@ impl Inner {
 
     #[inline]
     pub async fn send_outbound(&self, buf: &[u8]) {
+        debug!("sending outbound packet to peer ({:?} bytes)", buf.len());
         let endpoint = { self.endpoint.read().unwrap().clone() };
         if let Some(endpoint) = endpoint {
             endpoint.send(buf).await.unwrap();
+        } else {
+            debug!("no endpoint to send outbound packet to peer");
         }
     }
 
@@ -181,15 +186,18 @@ impl Inner {
 }
 
 async fn handshake_loop(inner: Arc<Inner>) {
+    debug!("starting handshake loop for peer");
     while inner.running.load(atomic::Ordering::Relaxed) {
         if inner.jitter.can_handshake_initiation() {
+            debug!("initiating handshake");
             let packet = inner.handshake.write().unwrap().initiate();
             inner.send_outbound(&packet).await; // send directly
-
             inner.jitter.mark_handshake_initiation();
         }
+        debug!("waiting until next handshake initiation");
         time::sleep_until(inner.jitter.next_handshake_initiation_at().into()).await;
     }
+    debug!("exiting handshake loop for peer")
     // close all loop
 }
 
@@ -262,9 +270,15 @@ async fn inbound_loop(inner: Arc<Inner>, mut rx: InboundRx) {
                 }
                 inner.update_endpoint(endpoint.clone());
 
-                // TODO: decrypt and send to tun
-
-                session.can_accept(packet.counter);
+                match session.decrypt_data(&packet) {
+                    Ok(data) => {
+                        inner.tun.write(&data).await.unwrap();
+                        session.aceept(packet.counter);
+                    }
+                    Err(e) => {
+                        debug!("failed to decrypt packet: {}", e);
+                    }
+                }
             }
         }
     }
@@ -276,9 +290,17 @@ async fn outbound_loop(inner: Arc<Inner>, mut rx: OutboundRx) {
     debug!("starting outbound loop for peer");
 
     while let Some(OutboundEvent::Data(data)) = rx.recv().await {
-        // TODO: encrypt
-        inner.send_outbound(&data).await;
-        inner.jitter.mark_outbound(data.len() as _);
+        let session = { inner.sessions.read().unwrap().current().clone() };
+        if let Some(session) = session {
+            match session.encrypt_data(&data) {
+                Ok(packet) => {
+                    let buf = packet.to_bytes();
+                    inner.send_outbound(&buf).await;
+                    inner.jitter.mark_outbound(buf.len() as _);
+                }
+                Err(_) => {}
+            }
+        }
     }
     debug!("exiting outbound loop for peer");
 }

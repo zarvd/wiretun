@@ -52,13 +52,18 @@ impl Listener {
             ]);
         }
     }
+
+    pub fn endpoint_for(&self, dst: SocketAddr) -> Endpoint {
+        let src = self.socket.local_addr().unwrap();
+        Endpoint::new(self.socket.clone(), src, dst)
+    }
 }
 
 impl Stream for Listener {
     type Item = (Endpoint, Vec<u8>);
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut data = Vec::with_capacity(65536);
+        let mut data = vec![0u8; 65526];
         let mut buf = ReadBuf::new(&mut data);
         let dst = match Pin::new(&mut self.socket).poll_recv_from(cx, &mut buf) {
             Poll::Ready(Ok(dst)) => dst,
@@ -69,7 +74,10 @@ impl Stream for Listener {
             Poll::Pending => return Poll::Pending,
         };
         let src = self.socket.local_addr().unwrap();
-        Poll::Ready(Some((Endpoint::new(self.socket.clone(), src, dst), data)))
+        Poll::Ready(Some((
+            Endpoint::new(self.socket.clone(), src, dst),
+            buf.filled().to_vec(),
+        )))
     }
 }
 

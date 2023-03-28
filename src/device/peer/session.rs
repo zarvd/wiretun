@@ -5,7 +5,9 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
+use crate::device::Error;
 use crate::noise::crypto::PeerStaticSecret;
+use crate::noise::{crypto, protocol};
 
 #[derive(Clone, Debug)]
 pub struct Session {
@@ -64,6 +66,24 @@ impl Session {
     pub fn next_nonce(&self) -> u64 {
         self.sender_nonce
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    }
+
+    #[inline]
+    pub fn encrypt_data(&self, data: &[u8]) -> Result<protocol::TransportData, Error> {
+        let nonce = self.next_nonce();
+        let payload =
+            crypto::aead_encrypt(&self.sender_key, nonce, data, &[]).map_err(Error::Noise)?;
+        Ok(protocol::TransportData {
+            receiver_index: self.receiver_index,
+            counter: nonce,
+            payload,
+        })
+    }
+
+    #[inline]
+    pub fn decrypt_data(&self, packet: &protocol::TransportData) -> Result<Vec<u8>, Error> {
+        crypto::aead_decrypt(&self.receiver_key, packet.counter, &packet.payload, &[])
+            .map_err(Error::Noise)
     }
 
     #[inline]

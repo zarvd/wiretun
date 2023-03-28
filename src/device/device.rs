@@ -1,4 +1,6 @@
 use std::mem;
+use std::net::SocketAddr;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,10 +20,23 @@ use crate::{Listener, Tun};
 
 const MAX_PEERS: usize = 1 << 16;
 
+pub struct PeerConfig {
+    pub static_public_key: [u8; 32],
+    pub allowed_ips: Vec<String>,
+    pub endpoint: String,
+}
+
+pub struct DeviceConfig {
+    pub tun_name: String,
+    pub static_private_key: [u8; 32],
+    pub peers: Vec<PeerConfig>,
+}
+
 struct Inner {
     tun: Tun,
     secret: LocalStaticSecret,
     peers: Peers,
+    cfg: DeviceConfig,
 }
 
 pub struct Device {
@@ -29,19 +44,47 @@ pub struct Device {
 }
 
 impl Device {
-    pub fn new() -> Self {
-        unimplemented!()
+    pub fn new(cfg: DeviceConfig) -> Result<Self, Error> {
+        let tun = Tun::new(&cfg.tun_name).map_err(Error::Tun)?;
+        let secret = LocalStaticSecret::new(cfg.static_private_key);
+        let peers = Peers::new(tun.clone(), secret.clone());
+
+        Ok(Self {
+            inner: Arc::new(Inner {
+                tun,
+                secret,
+                peers,
+                cfg,
+            }),
+        })
     }
 
-    pub async fn start(self) -> Result<Handle, Error> {
+    pub async fn start(self, listen_port: u16) -> Result<Handle, Error> {
         let stop_notify = Arc::new(Notify::new());
 
-        let listeners = Listener::new().await?;
+        let listeners = Listener::with_port(listen_port).await?;
 
         let mut handles = vec![
             tokio::spawn(loop_tun_events(self.inner.clone(), stop_notify.clone())),
             tokio::spawn(loop_outbound(self.inner.clone(), stop_notify.clone())),
         ];
+
+        for cfg in &self.inner.cfg.peers {
+            let allowed_ips: Vec<_> = cfg
+                .allowed_ips
+                .iter()
+                .map(|s| Bytes::from(s.clone()))
+                .collect();
+            let endpoint = if let Ok(dst) = SocketAddr::from_str(&cfg.endpoint) {
+                Some(listeners[0].endpoint_for(dst))
+            } else {
+                None
+            };
+            let mut p = self
+                .inner
+                .peers
+                .insert(cfg.static_public_key, &allowed_ips, endpoint);
+        }
 
         for listener in listeners {
             handles.push(tokio::spawn(loop_inbound(
