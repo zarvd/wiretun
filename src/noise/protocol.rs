@@ -1,4 +1,5 @@
 use super::Error;
+use std::fmt::{Debug, Formatter};
 
 const MESSAGE_TYPE_HANDSHAKE_INITIATION: u8 = 1u8;
 const MESSAGE_TYPE_HANDSHAKE_RESPONSE: u8 = 2u8;
@@ -10,7 +11,6 @@ const COOKIE_REPLY_PACKET_SIZE: usize = 64;
 
 const MIN_PACKET_SIZE: usize = 4; // TODO
 
-#[derive(Debug)]
 pub struct HandshakeInitiation {
     pub sender_index: u32,
     pub ephemeral_public_key: [u8; 32],
@@ -40,7 +40,14 @@ impl TryFrom<&[u8]> for HandshakeInitiation {
     }
 }
 
-#[derive(Debug)]
+impl Debug for HandshakeInitiation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HandshakeInitiation")
+            .field("sender_index", &self.sender_index)
+            .finish()
+    }
+}
+
 pub struct HandshakeResponse {
     pub sender_index: u32,
     pub receiver_index: u32,
@@ -70,7 +77,15 @@ impl TryFrom<&[u8]> for HandshakeResponse {
     }
 }
 
-#[derive(Debug)]
+impl Debug for HandshakeResponse {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HandshakeResponse")
+            .field("sender_index", &self.sender_index)
+            .field("receiver_index", &self.receiver_index)
+            .finish()
+    }
+}
+
 pub struct CookieReply {
     pub receiver_index: u32,
     pub nonce: [u8; 24],
@@ -94,7 +109,15 @@ impl TryFrom<&[u8]> for CookieReply {
     }
 }
 
-#[derive(Debug)]
+impl Debug for CookieReply {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CookieReply")
+            .field("index", &self.receiver_index)
+            .field("nonce", &self.nonce)
+            .finish()
+    }
+}
+
 pub struct TransportData {
     pub receiver_index: u32,
     pub counter: u64,
@@ -109,6 +132,15 @@ impl TransportData {
         bytes.extend_from_slice(&self.counter.to_le_bytes());
         bytes.extend_from_slice(&self.payload);
         bytes
+    }
+}
+
+impl Debug for TransportData {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TransportData")
+            .field("index", &self.receiver_index)
+            .field("len(payload)", &self.payload.len())
+            .finish()
     }
 }
 

@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{Debug, Display, Formatter};
 use std::io;
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -92,7 +92,7 @@ impl Display for Listener {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Endpoint {
     socket: Arc<UdpSocket>,
     src: SocketAddr,
@@ -118,5 +118,14 @@ impl Endpoint {
     #[inline]
     pub fn src(&self) -> SocketAddr {
         self.src
+    }
+}
+
+impl Debug for Endpoint {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Endpoint")
+            .field("src", &self.src.to_string())
+            .field("dst", &self.dst.to_string())
+            .finish()
     }
 }

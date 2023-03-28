@@ -11,14 +11,15 @@ const COOKIE_LIFETIME: Duration = Duration::from_secs(120);
 
 pub struct Cookie {
     secret: Option<([u8; 32], Instant)>,
-    local_mac1_hash: [u8; 32],   // pre-compute hash for generating mac1
-    local_cookie_hash: [u8; 32], // pre-compute hash for generating cookie
-    peer_mac1_hash: [u8; 32],    // pre-compute hash for validating mac1
-    peer_cookie_hash: [u8; 32],  // pre-compute hash for validating cookie
+    local_mac1_hash: [u8; 32],   // pre-compute hash for validating mac1
+    local_cookie_hash: [u8; 32], // pre-compute hash for validating cookie
+    peer_mac1_hash: [u8; 32],    // pre-compute hash for generating mac1
+    peer_cookie_hash: [u8; 32],  // pre-compute hash for generating cookie
     last_cookie: Option<([u8; 16], Instant)>,
 }
 
 impl Cookie {
+    #[inline]
     pub fn new(secret: &PeerStaticSecret) -> Self {
         let local_pub = secret.local().public_key().as_bytes();
         let peer_pub = secret.public_key().as_bytes();
@@ -38,7 +39,7 @@ impl Cookie {
 
         // validate mac1
         {
-            let expected_mac1 = mac(&self.peer_mac1_hash, msg);
+            let expected_mac1 = mac(&self.local_mac1_hash, msg);
             if mac1 != expected_mac1 {
                 return Err(Error::InvalidMac);
             }
@@ -53,7 +54,7 @@ impl Cookie {
 
     #[inline]
     pub fn generate_mac1(&self, payload: &[u8]) -> [u8; 16] {
-        mac(&self.local_mac1_hash, payload)
+        mac(&self.peer_mac1_hash, payload)
     }
 
     #[inline]
@@ -61,7 +62,7 @@ impl Cookie {
         if self.last_cookie.is_none() || self.last_cookie.unwrap().1.elapsed() >= COOKIE_LIFETIME {
             [0u8; 16]
         } else {
-            mac(&self.local_cookie_hash, payload)
+            mac(&self.peer_cookie_hash, payload)
         }
     }
 
