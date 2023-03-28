@@ -266,8 +266,8 @@ async fn inbound_loop(inner: Arc<Inner>, mut rx: InboundRx) {
             }
             InboundEvent::CookieReply {
                 endpoint,
-                packet,
-                session,
+                packet: _,
+                session: _,
             } => {
                 debug!("handling cookie reply from peer {}", endpoint.dst());
             }

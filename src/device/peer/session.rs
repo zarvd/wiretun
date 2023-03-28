@@ -5,8 +5,6 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
-use tracing::debug;
-
 use crate::device::Error;
 use crate::noise::crypto::PeerStaticSecret;
 use crate::noise::{crypto, protocol};
@@ -21,14 +19,6 @@ pub struct Session {
     nonce_filter: Arc<Mutex<NonceFilter>>,
     created_at: Instant,
 }
-
-impl PartialEq for Session {
-    fn eq(&self, other: &Self) -> bool {
-        self.sender_index == other.sender_index
-    }
-}
-
-impl Eq for Session {}
 
 impl Session {
     #[inline]
@@ -154,6 +144,7 @@ impl NonceFilter {
             self.next = counter + 1;
             self.set(counter);
         } else {
+            // TODO perf: we can advance by 64 bits at a time
             while self.next < counter {
                 self.advance();
             }
