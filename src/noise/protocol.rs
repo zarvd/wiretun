@@ -101,6 +101,17 @@ pub struct TransportData {
     pub payload: Vec<u8>,
 }
 
+impl TransportData {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(self.payload.len() + 16);
+        bytes.extend_from_slice(&[MESSAGE_TYPE_TRANSPORT_DATA, 0, 0, 0]);
+        bytes.extend_from_slice(&self.receiver_index.to_le_bytes());
+        bytes.extend_from_slice(&self.counter.to_le_bytes());
+        bytes.extend_from_slice(&self.payload);
+        bytes
+    }
+}
+
 impl TryFrom<&[u8]> for TransportData {
     type Error = Error;
 

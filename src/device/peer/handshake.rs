@@ -1,5 +1,3 @@
-use std::time::{Duration, Instant};
-
 use rand_core::{OsRng, RngCore};
 
 use super::session::Session;
@@ -16,33 +14,10 @@ enum State {
     Finialized {},
 }
 
-struct RateLimiter {
-    last_sent_initiation_at: Instant,
-    last_received_initiation_at: Instant,
-}
-
-impl RateLimiter {
-    pub fn new() -> Self {
-        Self {
-            last_sent_initiation_at: Instant::now(),
-            last_received_initiation_at: Instant::now(),
-        }
-    }
-
-    pub fn can_receive_initiation(&self) -> bool {
-        self.last_received_initiation_at.elapsed() > Duration::from_millis(200)
-    }
-
-    pub fn mark_received_initiation(&mut self) {
-        self.last_received_initiation_at = Instant::now();
-    }
-}
-
 pub(super) struct Handshake {
     state: State,
     secret: PeerStaticSecret,
     local_index: u32,
-    rate_limiter: RateLimiter,
 }
 
 impl Handshake {
@@ -51,7 +26,6 @@ impl Handshake {
             secret,
             state: State::Uninit,
             local_index: OsRng.next_u32(),
-            rate_limiter: RateLimiter::new(),
         }
     }
 
@@ -73,11 +47,6 @@ impl Handshake {
         &mut self,
         initiation: &IncomingInitiation,
     ) -> Result<(Session, Vec<u8>), Error> {
-        if !self.rate_limiter.can_receive_initiation() {
-            // TODO error
-        }
-        self.rate_limiter.mark_received_initiation();
-
         let (state, payload) = OutgoingResponse::new(initiation, self.local_index, &self.secret);
         let (sender_nonce, receiver_nonce) = (self.local_index, initiation.index);
         let (receiver_key, sender_key) = kdf2(&[], &state.chaining_key);
