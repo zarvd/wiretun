@@ -8,4 +8,8 @@ pub enum Error {
     WrongPeerStaticKey,
     #[error("invalid packet")]
     InvalidPacket,
+    #[error("invalid handshake state")]
+    InvalidHandshakeState,
+    #[error("invalid mac")]
+    InvalidMac,
 }

@@ -69,28 +69,22 @@ impl Ord for Timestamp {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{Duration, NaiveDateTime, Utc};
     use std::ops::Add;
 
+    use chrono::{Duration, NaiveDateTime, Utc};
+
     use super::*;
+    use crate::noise::crypto;
 
     #[test]
     fn test_timestamp() {
-        fn encode_hex(bytes: &[u8]) -> String {
-            use std::fmt::Write;
-            let mut s = String::with_capacity(bytes.len() * 2);
-            for &b in bytes {
-                write!(&mut s, "{:02x}", b).unwrap();
-            }
-            s
-        }
         let t0 = &NaiveDateTime::from_timestamp_opt(0, 123456789)
             .unwrap()
             .and_local_timezone(Utc)
             .unwrap();
 
         let ts0 = Timestamp::stamp(*t0);
-        assert_eq!(encode_hex(&ts0.0), "400000000000000a07000000");
+        assert_eq!(crypto::encode_to_hex(&ts0.0), "400000000000000a07000000");
         assert_eq!(ts0.to_string(), "1970-01-01T00:00:00.117440512+00:00");
 
         let ts1 = Timestamp::stamp(t0.add(Duration::nanoseconds(10)));

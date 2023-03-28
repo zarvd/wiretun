@@ -10,6 +10,22 @@ pub type PrivateKey = x25519_dalek::StaticSecret;
 pub type PublicKey = x25519_dalek::PublicKey;
 pub type EphermealPrivateKey = x25519_dalek::ReusableSecret;
 
+pub fn encode_to_hex(key: &[u8]) -> String {
+    use std::fmt::Write;
+    let mut s = String::with_capacity(key.len() * 2);
+    for &b in key {
+        write!(&mut s, "{:02x}", b).unwrap();
+    }
+    s
+}
+
+pub fn decode_from_hex(s: &str) -> Vec<u8> {
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+        .collect()
+}
+
 #[derive(Clone)]
 pub struct LocalStaticSecret {
     private: PrivateKey,
@@ -196,20 +212,7 @@ pub fn xaead_decrypt(key: &[u8], nonce: &[u8], msg: &[u8], aad: &[u8]) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn decoded_hex(s: &str) -> Vec<u8> {
-        (0..s.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
-            .collect()
-    }
-    fn encode_hex(bytes: &[u8]) -> String {
-        use std::fmt::Write;
-        let mut s = String::with_capacity(bytes.len() * 2);
-        for &b in bytes {
-            write!(&mut s, "{:02x}", b).unwrap();
-        }
-        s
-    }
+
     #[test]
     fn test_hash() {
         assert_eq!(
@@ -254,29 +257,29 @@ mod tests {
         ];
         // test kdf1
         for (key, input, (t0, _, _)) in cases {
-            let key = decoded_hex(key);
-            let input = decoded_hex(input);
+            let key = decode_from_hex(key);
+            let input = decode_from_hex(input);
             let out = kdf1(&key, &input);
-            assert_eq!(encode_hex(&out), t0);
+            assert_eq!(encode_to_hex(&out), t0);
         }
 
         // test kdf2
         for (key, input, (t0, t1, _)) in cases {
-            let key = decoded_hex(key);
-            let input = decoded_hex(input);
+            let key = decode_from_hex(key);
+            let input = decode_from_hex(input);
             let out = kdf2(&key, &input);
-            assert_eq!(encode_hex(&out.0), t0);
-            assert_eq!(encode_hex(&out.1), t1);
+            assert_eq!(encode_to_hex(&out.0), t0);
+            assert_eq!(encode_to_hex(&out.1), t1);
         }
 
         // test kdf3
         for (key, input, (t0, t1, t2)) in cases {
-            let key = decoded_hex(key);
-            let input = decoded_hex(input);
+            let key = decode_from_hex(key);
+            let input = decode_from_hex(input);
             let out = kdf3(&key, &input);
-            assert_eq!(encode_hex(&out.0), t0);
-            assert_eq!(encode_hex(&out.1), t1);
-            assert_eq!(encode_hex(&out.2), t2);
+            assert_eq!(encode_to_hex(&out.0), t0);
+            assert_eq!(encode_to_hex(&out.1), t1);
+            assert_eq!(encode_to_hex(&out.2), t2);
         }
     }
 
@@ -289,7 +292,7 @@ mod tests {
         let encrypted = aead_encrypt(key, counter, data, aad).unwrap();
         assert_eq!(
             "3b97d40eb9a5a78385054b7be7027c9661a2031f4f91",
-            encode_hex(&encrypted),
+            encode_to_hex(&encrypted),
         );
         let decrypted = aead_decrypt(key, counter, &encrypted, aad).unwrap();
         assert_eq!(data, &decrypted[..]);
@@ -304,7 +307,7 @@ mod tests {
         let encrypted = xaead_encrypt(key, nonce, data, aad).unwrap();
         assert_eq!(
             "2f8312b423a80a32585bcf059fbcfeee8063d258f030",
-            encode_hex(&encrypted),
+            encode_to_hex(&encrypted),
         );
         let decrypted = xaead_decrypt(key, nonce, &encrypted, aad).unwrap();
         assert_eq!(data, &decrypted[..]);
