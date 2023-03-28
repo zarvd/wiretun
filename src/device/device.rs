@@ -1,5 +1,5 @@
 use std::mem;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,7 +22,7 @@ const MAX_PEERS: usize = 1 << 16;
 
 pub struct PeerConfig {
     pub static_public_key: [u8; 32],
-    pub allowed_ips: Vec<String>,
+    pub allowed_ips: Vec<IpAddr>,
     pub endpoint: String,
 }
 
@@ -70,11 +70,6 @@ impl Device {
         ];
 
         for cfg in &self.inner.cfg.peers {
-            let allowed_ips: Vec<_> = cfg
-                .allowed_ips
-                .iter()
-                .map(|s| Bytes::from(s.clone()))
-                .collect();
             let endpoint = if let Ok(dst) = SocketAddr::from_str(&cfg.endpoint) {
                 Some(listeners[0].endpoint_for(dst))
             } else {
@@ -83,7 +78,7 @@ impl Device {
             let mut p = self
                 .inner
                 .peers
-                .insert(cfg.static_public_key, &allowed_ips, endpoint);
+                .insert(cfg.static_public_key, &cfg.allowed_ips, endpoint);
         }
 
         for listener in listeners {
@@ -135,47 +130,45 @@ async fn loop_inbound(inner: Arc<Inner>, mut listener: Listener, stop_notify: Ar
 #[inline]
 async fn tick_inbound(inner: Arc<Inner>, listener: &mut Listener) {
     match listener.next().await {
-        Some((endpoint, data)) => {
-            debug!("received packet from {:?}", endpoint.dst());
-
-            match Message::parse(&data) {
-                Ok(Message::HandshakeInitiation(p)) => {
-                    let initiation =
-                        IncomingInitiation::parse(&inner.secret, &p).unwrap_or_else(|_| todo!());
-                    if let Some(peer) = inner
-                        .peers
-                        .by_static_public_key(initiation.static_public_key.as_bytes())
-                    {
-                        peer.handle_handshake_initiation(endpoint, initiation).await;
-                    }
-                }
-                Ok(msg) => {
-                    let receiver_index = match &msg {
-                        Message::HandshakeResponse(p) => p.receiver_index,
-                        Message::CookieReply(p) => p.receiver_index,
-                        Message::TransportData(p) => p.receiver_index,
-                        _ => unreachable!(),
-                    };
-                    if let Some((session, mut peer)) = inner.peers.by_index(receiver_index) {
-                        match msg {
-                            Message::HandshakeResponse(p) => {
-                                peer.handle_handshake_response(endpoint, p, session).await;
-                            }
-                            Message::CookieReply(p) => {
-                                peer.handle_cookie_reply(endpoint, p, session).await;
-                            }
-                            Message::TransportData(p) => {
-                                peer.handle_transport_data(endpoint, p, session).await;
-                            }
-                            _ => unreachable!(),
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!("failed to parse message type: {:?}", e);
+        Some((endpoint, data)) => match Message::parse(&data) {
+            Ok(Message::HandshakeInitiation(p)) => {
+                let initiation =
+                    IncomingInitiation::parse(&inner.secret, &p).unwrap_or_else(|_| todo!());
+                if let Some(peer) = inner
+                    .peers
+                    .by_static_public_key(initiation.static_public_key.as_bytes())
+                {
+                    peer.handle_handshake_initiation(endpoint, initiation).await;
                 }
             }
-        }
+            Ok(msg) => {
+                let receiver_index = match &msg {
+                    Message::HandshakeResponse(p) => p.receiver_index,
+                    Message::CookieReply(p) => p.receiver_index,
+                    Message::TransportData(p) => p.receiver_index,
+                    _ => unreachable!(),
+                };
+                if let Some((session, mut peer)) = inner.peers.by_index(receiver_index) {
+                    match msg {
+                        Message::HandshakeResponse(p) => {
+                            peer.handle_handshake_response(endpoint, p, session).await;
+                        }
+                        Message::CookieReply(p) => {
+                            peer.handle_cookie_reply(endpoint, p, session).await;
+                        }
+                        Message::TransportData(p) => {
+                            peer.handle_transport_data(endpoint, p, session).await;
+                        }
+                        _ => unreachable!(),
+                    }
+                } else {
+                    warn!("received message for unknown peer {receiver_index}");
+                }
+            }
+            Err(e) => {
+                warn!("failed to parse message type: {:?}", e);
+            }
+        },
         None => {
             error!("listener error");
         }
@@ -205,9 +198,15 @@ async fn tick_outbound(inner: Arc<Inner>) {
             let dst = {
                 match buf[0] & 0xF0 {
                     0x40 if buf.len() < IPV4_HEADER_LEN => return,
-                    0x40 => &buf[16..20],
+                    0x40 => {
+                        let addr: [u8; 4] = buf[16..20].try_into().unwrap();
+                        IpAddr::from(Ipv4Addr::from(addr))
+                    }
                     0x60 if buf.len() < IPV6_HEADER_LEN => return,
-                    0x60 => &buf[24..40],
+                    0x60 => {
+                        let addr: [u8; 16] = buf[24..40].try_into().unwrap();
+                        IpAddr::from(Ipv6Addr::from(addr))
+                    }
                     n => {
                         debug!("unknown IP version: {}", n);
                         return;
@@ -215,7 +214,9 @@ async fn tick_outbound(inner: Arc<Inner>) {
                 }
             };
 
-            let peer = inner.peers.by_allow_ip(Bytes::copy_from_slice(dst));
+            debug!("trying to send packet to {}", dst);
+
+            let peer = inner.peers.by_allow_ip(dst);
 
             if let Some(mut peer) = peer {
                 peer.stage_outbound(buf).await

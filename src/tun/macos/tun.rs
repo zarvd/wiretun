@@ -6,6 +6,7 @@ use std::sync::Arc;
 use bytes::{Buf, Bytes, BytesMut};
 use regex::Regex;
 use tokio::io::unix::AsyncFd;
+use tracing::debug;
 
 use super::sys;
 
@@ -117,6 +118,7 @@ impl Tun {
 
             match ret {
                 Ok(Ok(n)) if n >= 4 => {
+                    debug!("TUN read {} bytes", n);
                     buf.advance(4);
                     buf.truncate(n - 4);
                     return Ok(buf.freeze());
