@@ -36,10 +36,13 @@ impl Handshake {
     }
 
     // Prepare HandshakeInitiation packet.
-    pub fn initiate(&mut self) -> Vec<u8> {
-        let (state, payload) = OutgoingInitiation::new(self.tick_local_index(), &self.secret);
+    pub fn initiate(&mut self) -> (Session, Vec<u8>) {
+        let sender_index = self.tick_local_index();
+        let (state, payload) = OutgoingInitiation::new(sender_index, &self.secret);
+        let pre = Session::new(sender_index, [0u8; 32], 0, [0u8; 32]);
         self.state = State::Initiation(state);
-        payload
+
+        (pre, payload)
     }
 
     // Receive HandshakeInitiation packet from peer.
@@ -47,10 +50,11 @@ impl Handshake {
         &mut self,
         initiation: &IncomingInitiation,
     ) -> Result<(Session, Vec<u8>), Error> {
+        self.tick_local_index();
         let (state, payload) = OutgoingResponse::new(initiation, self.local_index, &self.secret);
-        let (sender_nonce, receiver_nonce) = (self.local_index, initiation.index);
+        let (sender_index, receiver_index) = (self.local_index, initiation.index);
         let (receiver_key, sender_key) = kdf2(&[], &state.chaining_key);
-        let sess = Session::new(sender_nonce, sender_key, receiver_nonce, receiver_key);
+        let sess = Session::new(sender_index, sender_key, receiver_index, receiver_key);
 
         Ok((sess, payload))
     }
@@ -59,9 +63,10 @@ impl Handshake {
         match &self.state {
             State::Initiation(initiation) => {
                 let state = IncomingResponse::parse(initiation, &self.secret, packet)?;
-                let (sender_nonce, receiver_nonce) = (initiation.index, state.index);
+                let (sender_index, receiver_index) = (initiation.index, state.index);
                 let (sender_key, receiver_key) = kdf2(&[], &state.chaining_key);
-                let sess = Session::new(sender_nonce, sender_key, receiver_nonce, receiver_key);
+                let sess = Session::new(sender_index, sender_key, receiver_index, receiver_key);
+
                 Ok(sess)
             }
             _ => Err(Error::InvalidKeyLength), // FIXME

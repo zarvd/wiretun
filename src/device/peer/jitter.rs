@@ -67,6 +67,7 @@ impl Timer {
 
 struct HandshakeJitter {
     last_attempt_at: Timer,
+    last_complete_at: Timer,
     attempt_before: Timer,
 }
 
@@ -75,14 +76,23 @@ impl HandshakeJitter {
     pub fn new(epoch: Instant) -> Self {
         Self {
             last_attempt_at: Timer::new(epoch),
+            last_complete_at: Timer::new(epoch - REJECT_AFTER_TIME),
             attempt_before: Timer::with_duration(epoch, REKEY_ATTEMPT_TIME),
         }
     }
 
     #[inline]
     pub fn can_initiation(&self) -> bool {
-        if self.is_max_attempt() {
+        if self.last_complete_at.elapsed() < REKEY_AFTER_TIME {
+            // An active session exists
             return false;
+        }
+
+        if self
+            .attempt_before
+            .before(self.last_complete_at.to_instant() + REKEY_AFTER_TIME)
+        {
+            self.reset_attempt();
         }
 
         self.last_attempt_at.elapsed() >= REKEY_TIMEOUT
@@ -95,11 +105,17 @@ impl HandshakeJitter {
 
     #[inline]
     pub fn next_initiation_at(&self) -> Instant {
-        if self.is_max_attempt() {
+        if self.is_max_attempt() || self.last_complete_at.elapsed() < REKEY_AFTER_TIME {
             return Instant::now() + REKEY_TIMEOUT;
         }
 
         self.last_attempt_at.to_instant() + REKEY_TIMEOUT
+    }
+
+    #[inline]
+    pub fn mark_complete(&self) {
+        self.last_complete_at.set_now();
+        self.reset_attempt();
     }
 
     #[inline]
@@ -124,7 +140,7 @@ struct TransportDataJitter {
 impl TransportDataJitter {
     pub fn new(epoch: Instant) -> Self {
         Self {
-            last_sent_at: Timer::new(epoch),
+            last_sent_at: Timer::new(epoch - KEEPALIVE_TIMEOUT),
             tx_messages: AtomicU64::new(0),
             rx_messages: AtomicU64::new(0),
             tx_bytes: AtomicU64::new(0),
@@ -181,11 +197,6 @@ impl Jitter {
     }
 
     #[inline]
-    pub fn reset_handshake_attempt(&self) {
-        self.handshake.reset_attempt();
-    }
-
-    #[inline]
     pub fn can_handshake_initiation(&self) -> bool {
         self.handshake.can_initiation()
     }
@@ -198,5 +209,10 @@ impl Jitter {
     #[inline]
     pub fn mark_handshake_initiation(&self) {
         self.handshake.mark_initiation();
+    }
+
+    #[inline]
+    pub fn mark_handshake_complete(&self) {
+        self.handshake.mark_complete();
     }
 }

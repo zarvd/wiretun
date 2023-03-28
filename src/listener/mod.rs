@@ -74,6 +74,7 @@ impl Stream for Listener {
             Poll::Pending => return Poll::Pending,
         };
         let src = self.socket.local_addr().unwrap();
+        debug!("Listener received {} bytes", buf.filled().len());
         Poll::Ready(Some((
             Endpoint::new(self.socket.clone(), src, dst),
             buf.filled().to_vec(),

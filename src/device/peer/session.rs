@@ -5,6 +5,8 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
+use tracing::debug;
+
 use crate::device::Error;
 use crate::noise::crypto::PeerStaticSecret;
 use crate::noise::{crypto, protocol};
@@ -240,39 +242,26 @@ impl Sessions {
         self.current.clone()
     }
 
-    pub fn renew_current(&mut self, session: Session) {
-        if let Some(previous) = self.previous.take() {
-            self.mgr.remove(&previous);
-        }
-        if let Some(current) = self.current.take() {
-            self.mgr.remove(&current);
-        }
-        self.previous = self.next.take();
+    pub fn prepare_next(&mut self, next: Session) {
+        self.deactive_next();
+        self.activiate(&next);
+        self.next = Some(next);
+    }
 
-        self.renew(&session);
+    pub fn rotate(&mut self, session: Session) {
+        debug!("renew next session");
+        self.deactive_previous();
+        self.deactive_next();
+
+        self.activiate(&session);
+        self.previous = self.current.take();
         self.current = Some(session);
     }
 
-    pub fn prepare_next(&mut self, session: Session) {
-        if let Some(previous) = self.previous.take() {
-            self.mgr.remove(&previous);
-        }
-        if let Some(next) = self.next.take() {
-            self.mgr.remove(&next);
-        }
-
-        self.renew(&session);
-        self.next = Some(session);
-    }
-
-    pub fn rotate_next(&mut self, session: Session) -> bool {
+    pub fn try_rotate(&mut self, session: Session) -> bool {
         if let Some(next) = self.next.as_ref() {
-            if session.eq(next) {
-                if let Some(previous) = self.previous.take() {
-                    self.mgr.remove(&previous);
-                }
-                self.previous = self.current.take();
-                self.current = self.next.take();
+            if session.sender_index == next.sender_index {
+                self.rotate(session);
                 return true;
             }
         }
@@ -280,9 +269,35 @@ impl Sessions {
     }
 
     #[inline]
-    fn renew(&self, session: &Session) {
+    fn deactive_previous(&mut self) {
+        if let Some(previous) = self.previous.take() {
+            self.deactivate(&previous);
+        }
+    }
+
+    #[inline]
+    fn deactive_current(&mut self) {
+        if let Some(current) = self.current.take() {
+            self.deactivate(&current);
+        }
+    }
+
+    #[inline]
+    fn deactive_next(&mut self) {
+        if let Some(next) = self.next.take() {
+            self.deactivate(&next);
+        }
+    }
+
+    #[inline]
+    fn activiate(&self, session: &Session) {
         self.mgr
             .insert(session.clone(), self.secret.public_key().to_bytes());
+    }
+
+    #[inline]
+    fn deactivate(&self, session: &Session) {
+        self.mgr.remove(session);
     }
 }
 
@@ -310,6 +325,7 @@ impl SessionManager {
     }
 
     pub fn insert(&self, session: Session, peer_static_pub: [u8; 32]) {
+        debug!("insert session: {}", session.sender_index);
         let mut inner = self.inner.write().unwrap();
         inner
             .by_index
@@ -317,11 +333,13 @@ impl SessionManager {
     }
 
     pub fn get_by_index(&self, index: u32) -> Option<(Session, [u8; 32])> {
+        debug!("get session by index: {}", index);
         let inner = self.inner.read().unwrap();
         inner.by_index.get(&index).cloned()
     }
 
     fn remove(&self, session: &Session) -> Option<(Session, [u8; 32])> {
+        debug!("remove session: {}", session.sender_index);
         let mut inner = self.inner.write().unwrap();
         inner.by_index.remove(&session.sender_index)
     }

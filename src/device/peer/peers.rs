@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::RwLock;
 
 use bytes::Bytes;
@@ -15,7 +16,7 @@ pub struct Peers {
     secret: LocalStaticSecret,
     session_mgr: SessionManager,
     by_static_public_key: RwLock<HashMap<[u8; 32], Peer>>,
-    by_allowed_ips: RwLock<HashMap<Bytes, Peer>>,
+    by_allowed_ips: RwLock<HashMap<IpAddr, Peer>>,
 }
 
 impl Peers {
@@ -32,7 +33,7 @@ impl Peers {
     pub fn insert(
         &self,
         public_key: [u8; 32],
-        allowed_ips: &[Bytes],
+        allowed_ips: &[IpAddr],
         endpoint: Option<Endpoint>,
     ) -> Peer {
         let mut by_static_public_key = self.by_static_public_key.write().unwrap();
@@ -58,7 +59,7 @@ impl Peers {
         index.get(public_key).cloned()
     }
 
-    pub fn by_allow_ip(&self, ip: Bytes) -> Option<Peer> {
+    pub fn by_allow_ip(&self, ip: IpAddr) -> Option<Peer> {
         let index = self.by_allowed_ips.read().unwrap();
         index.get(&ip).cloned()
     }
