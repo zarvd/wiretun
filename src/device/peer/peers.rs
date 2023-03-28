@@ -54,16 +54,19 @@ impl Peers {
         peer.clone()
     }
 
+    /// Returns the peer that matches the given public key.
     pub fn by_static_public_key(&self, public_key: &[u8; 32]) -> Option<Peer> {
         let index = self.by_static_public_key.read().unwrap();
         index.get(public_key).cloned()
     }
 
+    /// Returns the peer that matches the given IP address.
     pub fn by_allow_ip(&self, ip: IpAddr) -> Option<Peer> {
         let index = self.by_allowed_ips.read().unwrap();
         index.get(&ip).cloned()
     }
 
+    /// Returns the peer that matches the index of the session.
     pub fn by_index(&self, i: u32) -> Option<(Session, Peer)> {
         match self.session_mgr.get_by_index(i) {
             Some((session, pub_key)) => self

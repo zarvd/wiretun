@@ -196,10 +196,6 @@ impl NonceFilter {
     #[inline]
     fn set(&mut self, i: u64) {
         let (word_idx, bit_idx) = self.bitmap_index(i);
-        println!(
-            "set {} {} {} {} {}",
-            self.next, self.bitmap.1, i, word_idx, bit_idx
-        );
         self.bitmap.0[word_idx] |= 1 << bit_idx;
     }
 
@@ -242,14 +238,15 @@ impl Sessions {
         self.current.clone()
     }
 
+    /// Prepare the next session.
     pub fn prepare_next(&mut self, next: Session) {
         self.deactive_next();
         self.activiate(&next);
         self.next = Some(next);
     }
 
+    /// Rotate with the given session and clear the next session.
     pub fn rotate(&mut self, session: Session) {
-        debug!("renew next session");
         self.deactive_previous();
         self.deactive_next();
 
@@ -258,6 +255,7 @@ impl Sessions {
         self.current = Some(session);
     }
 
+    /// Returns true if the given session is the next session.
     pub fn try_rotate(&mut self, session: Session) -> bool {
         if let Some(next) = self.next.as_ref() {
             if session.sender_index == next.sender_index {
@@ -325,7 +323,6 @@ impl SessionManager {
     }
 
     pub fn insert(&self, session: Session, peer_static_pub: [u8; 32]) {
-        debug!("insert session: {}", session.sender_index);
         let mut inner = self.inner.write().unwrap();
         inner
             .by_index
@@ -333,13 +330,11 @@ impl SessionManager {
     }
 
     pub fn get_by_index(&self, index: u32) -> Option<(Session, [u8; 32])> {
-        debug!("get session by index: {}", index);
         let inner = self.inner.read().unwrap();
         inner.by_index.get(&index).cloned()
     }
 
     fn remove(&self, session: &Session) -> Option<(Session, [u8; 32])> {
-        debug!("remove session: {}", session.sender_index);
         let mut inner = self.inner.write().unwrap();
         inner.by_index.remove(&session.sender_index)
     }
