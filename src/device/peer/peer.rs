@@ -3,6 +3,7 @@ use std::sync::{
     Arc, RwLock,
 };
 
+use crate::device::peer::jitter;
 use bytes::Bytes;
 use tokio::sync::mpsc;
 use tokio::time;
@@ -37,10 +38,6 @@ impl Peer {
         }
 
         Self { inner }
-    }
-
-    pub fn secret(&self) -> &PeerStaticSecret {
-        &self.inner.secret
     }
 
     #[inline]
@@ -106,7 +103,12 @@ impl Peer {
     }
 
     // Stage outbound data to be sent to the peer
-    pub async fn stage_outbound(&mut self, _buf: Bytes) {}
+    #[inline]
+    pub async fn stage_outbound(&self, buf: Bytes) {
+        self.inner
+            .stage_outbound(OutboundEvent::Data(buf.to_vec()))
+            .await;
+    }
 }
 
 struct Inner {
@@ -314,26 +316,39 @@ async fn inbound_loop(inner: Arc<Inner>, mut rx: InboundRx) {
 async fn outbound_loop(inner: Arc<Inner>, mut rx: OutboundRx) {
     debug!("starting outbound loop for peer");
 
-    while let Some(OutboundEvent::Data(data)) = rx.recv().await {
-        if data.is_empty() {
-            debug!("outbound loop: sending keepalive");
-        }
-
-        let session = { inner.sessions.read().unwrap().current().clone() };
-        if let Some(session) = session {
-            match session.encrypt_data(&data) {
-                Ok(packet) => {
-                    let buf = packet.to_bytes();
-                    inner.send_outbound(&buf).await;
-                    inner.jitter.mark_outbound(buf.len() as _);
-                }
-                Err(e) => {
-                    warn!("failed to encrypt packet: {}", e);
+    loop {
+        tokio::select! {
+            _ = time::sleep(jitter::KEEPALIVE_TIMEOUT) => {
+                inner.keepalive().await;
+            }
+            event = rx.recv() => {
+                if let Some(OutboundEvent::Data(data)) = event {
+                    if data.is_empty() {
+                        debug!("outbound loop: sending keepalive");
+                    }
+                    tick_outbound(inner.clone(), data).await;
+                } else {
+                    break;
                 }
             }
-        } else {
-            debug!("no session to send outbound packet to peer");
         }
     }
+
     debug!("exiting outbound loop for peer");
+}
+
+async fn tick_outbound(inner: Arc<Inner>, data: Vec<u8>) {
+    let session = { inner.sessions.read().unwrap().current().clone() };
+    let session = if let Some(s) = session { s } else { return };
+
+    match session.encrypt_data(&data) {
+        Ok(packet) => {
+            let buf = packet.to_bytes();
+            inner.send_outbound(&buf).await;
+            inner.jitter.mark_outbound(buf.len() as _);
+        }
+        Err(e) => {
+            warn!("failed to encrypt packet: {}", e);
+        }
+    }
 }
