@@ -11,16 +11,12 @@ use tokio::net::UdpSocket;
 use tracing::{debug, info};
 
 #[derive(Clone)]
-pub struct Listener {
+pub(super) struct Listener {
     socket: Arc<UdpSocket>,
 }
 
 impl Listener {
-    pub async fn new() -> Result<(Self, Self), io::Error> {
-        Self::with_port(0).await
-    }
-
-    pub async fn with_port(port: u16) -> Result<(Self, Self), io::Error> {
+    pub async fn bind(port: u16) -> Result<(Self, Self), io::Error> {
         loop {
             let ipv4 = UdpSocket::bind(SocketAddr::new("0.0.0.0".parse().unwrap(), port)).await?;
             let ipv6 = match UdpSocket::bind(SocketAddr::new(
@@ -97,7 +93,7 @@ impl Display for Listener {
 }
 
 #[derive(Clone)]
-pub struct Endpoint {
+pub(crate) struct Endpoint {
     socket: Arc<UdpSocket>,
     src: SocketAddr,
     dst: SocketAddr,
@@ -115,11 +111,13 @@ impl Endpoint {
     }
 
     #[inline]
+    #[allow(dead_code)]
     pub fn dst(&self) -> SocketAddr {
         self.dst
     }
 
     #[inline]
+    #[allow(dead_code)]
     pub fn src(&self) -> SocketAddr {
         self.src
     }
