@@ -3,13 +3,14 @@ use std::mem::{size_of, size_of_val};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::sync::Arc;
 
-use bytes::{Buf, Bytes, BytesMut};
+use async_trait::async_trait;
+use bytes::{Buf, BytesMut};
 use regex::Regex;
 use tokio::io::unix::AsyncFd;
 use tracing::debug;
 
 use super::sys;
-use crate::tun::Error;
+use crate::tun::{Error, Tun};
 
 #[inline]
 fn parse_name(name: &str) -> Result<u32, Error> {
@@ -27,12 +28,12 @@ fn parse_name(name: &str) -> Result<u32, Error> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Tun {
+pub struct NativeTun {
     fd: Arc<AsyncFd<OwnedFd>>,
     name: String,
 }
 
-impl Tun {
+impl NativeTun {
     pub fn new(name: &str) -> Result<Self, Error> {
         let idx = parse_name(name)?;
 
@@ -77,8 +78,15 @@ impl Tun {
 
         Ok(Self { fd, name })
     }
+}
 
-    pub fn set_mtu(&self, mtu: u16) -> Result<(), Error> {
+#[async_trait]
+impl Tun for NativeTun {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn set_mtu(&self, mtu: u16) -> Result<(), Error> {
         let mut req = sys::ifreq::new(&self.name);
         req.ifru.mtu = mtu as _;
         if unsafe { libc::ioctl(self.fd.as_raw_fd(), sys::SIOCSIFMTU, &req) } < 0 {
@@ -88,7 +96,7 @@ impl Tun {
         Ok(())
     }
 
-    pub fn mtu(&self) -> Result<u16, Error> {
+    fn mtu(&self) -> Result<u16, Error> {
         let req = sys::ifreq::new(&self.name);
         if unsafe { libc::ioctl(self.fd.as_raw_fd(), sys::SIOCGIFMTU, &req) } < 0 {
             return Err(io::Error::last_os_error().into());
@@ -97,12 +105,8 @@ impl Tun {
         Ok(unsafe { req.ifru.mtu as _ })
     }
 
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub async fn read(&self) -> Result<Bytes, Error> {
-        let mut buf = BytesMut::zeroed(65536); // TODO: should we use a buffer pool?
+    async fn recv(&self) -> Result<Vec<u8>, Error> {
+        let mut buf = BytesMut::zeroed(1500); // TODO: should we use a buffer pool?
 
         loop {
             let ret = {
@@ -122,7 +126,7 @@ impl Tun {
                     debug!("TUN read {} bytes", n);
                     buf.advance(4);
                     buf.truncate(n - 4);
-                    return Ok(buf.freeze());
+                    return Ok(buf.freeze().to_vec());
                 }
                 Ok(Err(e)) => return Err(e.into()),
                 _ => continue,
@@ -130,7 +134,7 @@ impl Tun {
         }
     }
 
-    pub async fn write(&self, buf: &[u8]) -> Result<(), Error> {
+    async fn send(&self, buf: &[u8]) -> Result<(), Error> {
         // FIXME
         let mut guard = self.fd.writable().await?;
         let ret = guard.try_io(|inner| unsafe {

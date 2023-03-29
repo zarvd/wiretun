@@ -1,6 +1,10 @@
 default:
     just --list
 
+# Build the project
+build:
+    cargo build
+
 # Run unit tests against the current platform
 unit-test:
     cargo nextest run

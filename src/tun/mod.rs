@@ -5,17 +5,18 @@ mod memory;
 
 pub use error::Error;
 #[cfg(target_os = "macos")]
-pub use macos::Tun;
+pub use macos::NativeTun;
 
 #[cfg(not(target_os = "macos"))]
-pub struct Tun {}
+pub struct NativeTun {}
 
 use async_trait::async_trait;
 
 #[async_trait]
-pub trait Tunnel {
-    fn mtu(&self) -> Result<u32, Error>;
-    fn set_mtu(&mut self, mtu: u32) -> Result<(), Error>;
+pub trait Tun: Send + Sync + Clone {
+    fn name(&self) -> &str;
+    fn mtu(&self) -> Result<u16, Error>;
+    fn set_mtu(&self, mtu: u16) -> Result<(), Error>;
     async fn recv(&self) -> Result<Vec<u8>, Error>;
     async fn send(&self, buf: &[u8]) -> Result<(), Error>;
 }

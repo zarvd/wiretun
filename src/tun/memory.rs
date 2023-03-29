@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 
-use crate::tun::{Error, Tunnel};
+use crate::tun::{Error, Tun};
 
+#[derive(Clone)]
 pub struct MemoryTun {
     name: String,
     mtu: u32,
@@ -10,12 +11,16 @@ pub struct MemoryTun {
 impl MemoryTun {}
 
 #[async_trait]
-impl Tunnel for MemoryTun {
-    fn mtu(&self) -> Result<u32, Error> {
+impl Tun for MemoryTun {
+    fn name(&self) -> &str {
         todo!()
     }
 
-    fn set_mtu(&mut self, mtu: u32) -> Result<(), Error> {
+    fn mtu(&self) -> Result<u16, Error> {
+        todo!()
+    }
+
+    fn set_mtu(&self, _mtu: u16) -> Result<(), Error> {
         todo!()
     }
 
@@ -23,7 +28,7 @@ impl Tunnel for MemoryTun {
         todo!()
     }
 
-    async fn send(&self, buf: &[u8]) -> Result<(), Error> {
+    async fn send(&self, _buf: &[u8]) -> Result<(), Error> {
         todo!()
     }
 }
