@@ -1,5 +1,5 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::future::join_all;
@@ -10,6 +10,7 @@ use tracing::{debug, error, warn};
 
 use super::peer::Peers;
 use super::{DeviceConfig, Error};
+use crate::device::DeviceMetrics;
 use crate::listener::Endpoint;
 use crate::noise::crypto::LocalStaticSecret;
 use crate::noise::handshake::IncomingInitiation;
@@ -25,7 +26,21 @@ where
     tun: T,
     secret: LocalStaticSecret,
     peers: Peers<T>,
-    cfg: DeviceConfig,
+    cfg: Mutex<DeviceConfig>,
+}
+
+impl<T> Inner<T>
+where
+    T: Tun + 'static,
+{
+    pub fn metrics(&self) -> DeviceMetrics {
+        let peers = self.peers.metrics();
+        DeviceMetrics { peers }
+    }
+
+    pub fn config(&self) -> DeviceConfig {
+        self.cfg.lock().unwrap().clone()
+    }
 }
 
 pub struct Device<T>
@@ -48,10 +63,21 @@ impl<T> Device<T>
 where
     T: Tun + 'static,
 {
-    pub async fn with_tun(tun: T, cfg: DeviceConfig) -> Result<Self, Error> {
+    pub async fn with_tun(tun: T, mut cfg: DeviceConfig) -> Result<Self, Error> {
+        let stop = Arc::new(Notify::new());
+        let secret = LocalStaticSecret::new(cfg.private_key);
+        let (listener_v4, listener_v6) = Listener::with_port(cfg.listen_port).await?;
+        // update cfg.listen_port in case it was 0
+        cfg.listen_port = listener_v4.listening_port();
+        let listener_uapi = uapi::Listener::bind(tun.name());
+        let peers = Peers::new(tun.clone(), secret.clone());
+        for cfg in &cfg.peers {
+            let endpoint = cfg.endpoint.map(|addr| listener_v4.endpoint_for(addr));
+            peers.insert(cfg.public_key, &cfg.allowed_ips, endpoint);
+        }
+
         let inner = {
-            let secret = LocalStaticSecret::new(cfg.private_key);
-            let peers = Peers::new(tun.clone(), secret.clone());
+            let cfg = Mutex::new(cfg);
             Arc::new(Inner {
                 tun,
                 secret,
@@ -59,17 +85,6 @@ where
                 cfg,
             })
         };
-
-        let stop = Arc::new(Notify::new());
-        let (listener_v4, listener_v6) = Listener::with_port(inner.cfg.listen_port).await?;
-        let listener_uapi = uapi::Listener::bind(inner.tun.name());
-        for cfg in &inner.cfg.peers {
-            let endpoint = cfg.endpoint.map(|addr| listener_v4.endpoint_for(addr));
-            inner
-                .peers
-                .insert(cfg.public_key, &cfg.allowed_ips, endpoint);
-        }
-
         let handles = vec![
             tokio::spawn(loop_tun_events(inner.clone(), stop.clone())),
             tokio::spawn(loop_outbound(inner.clone(), stop.clone())),
@@ -122,8 +137,13 @@ impl<T> Handle<T>
 where
     T: Tun + 'static,
 {
-    pub fn fetch_config(&self) -> DeviceConfig {
+    pub fn config(&self) -> DeviceConfig {
         todo!()
+    }
+
+    #[inline]
+    pub fn metrics(&self) -> DeviceMetrics {
+        self.inner.metrics()
     }
 
     pub fn update_config(&self, _cfg: DeviceConfig) {}
@@ -303,7 +323,7 @@ where
 }
 
 async fn handle_uapi_conn<T>(
-    _inner: Arc<Inner<T>>,
+    inner: Arc<Inner<T>>,
     mut conn: uapi::Connection,
     stop_notify: Arc<Notify>,
 ) where
@@ -317,9 +337,7 @@ async fn handle_uapi_conn<T>(
             }
             op = conn.next() => {
                 match op {
-                    Ok(uapi::Operation::Get) => {
-                        debug!("received uapi get config");
-                    }
+                    Ok(uapi::Operation::Get) => handle_uapi_get(inner.clone(), &mut conn).await,
                     Ok(uapi::Operation::Set) => {
                         debug!("received uapi set config");
                     }
@@ -328,4 +346,39 @@ async fn handle_uapi_conn<T>(
             }
         }
     }
+}
+
+async fn handle_uapi_get<T>(inner: Arc<Inner<T>>, conn: &mut uapi::Connection)
+where
+    T: Tun + 'static,
+{
+    let cfg = inner.config();
+    let mut metrics = inner.metrics();
+
+    let peers = cfg
+        .peers
+        .into_iter()
+        .map(|p| {
+            let m = metrics.peers.remove(&p.public_key).unwrap();
+            uapi::PeerInfo {
+                public_key: p.public_key,
+                psk: p.preshared_key.unwrap_or_default(),
+                allowed_ips: p.allowed_ips,
+                endpoint: p.endpoint,
+                last_handshake_at: m.last_handshake_at,
+                tx_bytes: m.tx_bytes,
+                rx_bytes: m.rx_bytes,
+                persistent_keepalive_interval: 0,
+            }
+        })
+        .collect();
+    let info = uapi::DeviceInfo {
+        private_key: cfg.private_key,
+        listen_port: cfg.listen_port,
+        fwmark: 0,
+        peers,
+    };
+
+    let resp = uapi::Response::Get(info);
+    conn.write(resp).await;
 }

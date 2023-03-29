@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::sync::Mutex;
+use std::time::{Duration, Instant, SystemTime};
 
 const REKEY_AFTER_MESSAGES: u64 = 1 << 60;
 const REJECT_AFTER_MESSAGES: u64 = u64::MAX - (1 << 13);
@@ -64,19 +65,21 @@ impl AtomicInstant {
     }
 }
 
-struct HandshakeJitter {
+pub(super) struct HandshakeMonitor {
     last_attempt_at: AtomicInstant,
     last_complete_at: AtomicInstant,
+    abs_last_complete_at: Mutex<SystemTime>,
     attempt_before: AtomicInstant,
 }
 
-impl HandshakeJitter {
+impl HandshakeMonitor {
     #[inline]
     pub fn new(epoch: Instant) -> Self {
         Self {
             last_attempt_at: AtomicInstant::new(epoch),
             last_complete_at: AtomicInstant::new(epoch - REJECT_AFTER_TIME),
             attempt_before: AtomicInstant::with_duration(epoch, REKEY_ATTEMPT_TIME),
+            abs_last_complete_at: Mutex::new(SystemTime::UNIX_EPOCH),
         }
     }
 
@@ -98,12 +101,12 @@ impl HandshakeJitter {
     }
 
     #[inline]
-    pub fn mark_initiation(&self) {
+    pub fn initiated(&self) {
         self.last_attempt_at.set_now();
     }
 
     #[inline]
-    pub fn next_initiation_at(&self) -> Instant {
+    pub fn initiation_at(&self) -> Instant {
         if self.is_max_attempt() || self.last_complete_at.elapsed() < REKEY_AFTER_TIME {
             return Instant::now() + REKEY_TIMEOUT;
         }
@@ -112,8 +115,9 @@ impl HandshakeJitter {
     }
 
     #[inline]
-    pub fn mark_complete(&self) {
+    pub fn completed(&self) {
         self.last_complete_at.set_now();
+        *self.abs_last_complete_at.lock().unwrap() = SystemTime::now();
         self.reset_attempt();
     }
 
@@ -128,7 +132,7 @@ impl HandshakeJitter {
     }
 }
 
-struct TransportDataJitter {
+pub(super) struct TrafficMonitor {
     last_sent_at: AtomicInstant,
     tx_messages: AtomicU64,
     rx_messages: AtomicU64,
@@ -136,7 +140,7 @@ struct TransportDataJitter {
     rx_bytes: AtomicU64,
 }
 
-impl TransportDataJitter {
+impl TrafficMonitor {
     pub fn new(epoch: Instant) -> Self {
         Self {
             last_sent_at: AtomicInstant::new(epoch - KEEPALIVE_TIMEOUT),
@@ -153,64 +157,59 @@ impl TransportDataJitter {
     }
 
     #[inline]
-    pub fn next_keepalive_at(&self) -> Instant {
+    pub fn keepalive_at(&self) -> Instant {
         self.last_sent_at.to_instant() + KEEPALIVE_TIMEOUT
     }
 
     #[inline]
-    pub fn prepare_outbound(&self, bytes: u64) {
+    pub fn outbound(&self, bytes: usize) {
+        let n = bytes as _;
         self.last_sent_at.set_now();
         self.tx_messages.fetch_add(1, Ordering::Relaxed);
-        self.tx_bytes.fetch_add(bytes, Ordering::Relaxed);
+        self.tx_bytes.fetch_add(n, Ordering::Relaxed);
     }
 }
 
-pub(super) struct Jitter {
-    handshake: HandshakeJitter,
-    data: TransportDataJitter,
+pub(super) struct PeerMonitor {
+    handshake: HandshakeMonitor,
+    traffic: TrafficMonitor,
 }
 
-impl Jitter {
+impl PeerMonitor {
     pub fn new() -> Self {
         let epoch = Instant::now();
         Self {
-            handshake: HandshakeJitter::new(epoch),
-            data: TransportDataJitter::new(epoch),
+            handshake: HandshakeMonitor::new(epoch),
+            traffic: TrafficMonitor::new(epoch),
         }
     }
 
     #[inline]
-    pub fn can_keepalive(&self) -> bool {
-        self.data.can_keepalive()
+    pub fn traffic(&self) -> &TrafficMonitor {
+        &self.traffic
     }
 
     #[inline]
-    pub fn next_keepalive_at(&self) -> Instant {
-        self.data.next_keepalive_at()
+    pub fn handshake(&self) -> &HandshakeMonitor {
+        &self.handshake
     }
 
     #[inline]
-    pub fn mark_outbound(&self, bytes: u64) {
-        self.data.prepare_outbound(bytes);
+    pub fn metrics(&self) -> PeerMetrics {
+        PeerMetrics {
+            tx_messages: self.traffic.tx_messages.load(Ordering::Relaxed),
+            rx_messages: self.traffic.rx_messages.load(Ordering::Relaxed),
+            tx_bytes: self.traffic.tx_bytes.load(Ordering::Relaxed),
+            rx_bytes: self.traffic.rx_bytes.load(Ordering::Relaxed),
+            last_handshake_at: *self.handshake.abs_last_complete_at.lock().unwrap(),
+        }
     }
+}
 
-    #[inline]
-    pub fn can_handshake_initiation(&self) -> bool {
-        self.handshake.can_initiation()
-    }
-
-    #[inline]
-    pub fn next_handshake_initiation_at(&self) -> Instant {
-        self.handshake.next_initiation_at()
-    }
-
-    #[inline]
-    pub fn mark_handshake_initiation(&self) {
-        self.handshake.mark_initiation();
-    }
-
-    #[inline]
-    pub fn mark_handshake_complete(&self) {
-        self.handshake.mark_complete();
-    }
+pub struct PeerMetrics {
+    pub tx_messages: u64,
+    pub rx_messages: u64,
+    pub tx_bytes: u64,
+    pub rx_bytes: u64,
+    pub last_handshake_at: SystemTime,
 }

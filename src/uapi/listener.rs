@@ -3,6 +3,7 @@ use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+use crate::noise::crypto;
 use bytes::{BufMut, Bytes, BytesMut};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf, SocketAddr};
@@ -59,10 +60,12 @@ pub enum Operation {
 }
 
 pub enum Response {
-    DeviceInfo(DeviceInfo),
+    Get(DeviceInfo),
+    Err,
 }
 
 pub struct DeviceInfo {
+    pub private_key: [u8; 32],
     pub listen_port: u16,
     pub fwmark: u32,
     pub peers: Vec<PeerInfo>,
@@ -71,7 +74,8 @@ pub struct DeviceInfo {
 pub struct PeerInfo {
     pub public_key: [u8; 32],
     pub psk: [u8; 32],
-    pub endpoint: Option<IpAddr>,
+    pub allowed_ips: Vec<(IpAddr, u8)>,
+    pub endpoint: Option<std::net::SocketAddr>,
     pub last_handshake_at: SystemTime,
     pub tx_bytes: u64,
     pub rx_bytes: u64,
@@ -81,35 +85,45 @@ pub struct PeerInfo {
 impl Into<Bytes> for DeviceInfo {
     fn into(self) -> Bytes {
         let mut buf = BytesMut::new();
-        buf.put_slice(b"listen_port=");
-        buf.put_slice(self.listen_port.to_string().as_bytes());
-        buf.put_slice(b"fwmark=");
-        buf.put_slice(self.fwmark.to_string().as_bytes());
+        if self.private_key != [0u8; 32] {
+            buf.put(
+                format!("private_key={}\n", crypto::encode_to_hex(&self.private_key)).as_bytes(),
+            );
+        }
+        buf.put(format!("listen_port={}\n", self.listen_port).as_bytes());
+
+        if self.fwmark != 0 {
+            buf.put(format!("fwmark={}\n", self.fwmark).as_bytes());
+        }
 
         for peer in self.peers {
-            buf.put_slice(b"public_key=");
-            buf.put_slice(peer.public_key.as_ref()); // TODO hex
-            buf.put_slice(b"preshared_key=");
-            buf.put_slice(peer.psk.as_ref()); // TODO hex
+            buf.put(format!("public_key={}\n", crypto::encode_to_hex(&peer.public_key)).as_bytes());
+            buf.put(format!("preshared_key={}\n", crypto::encode_to_hex(&peer.psk)).as_bytes());
+            for (ip, mask) in peer.allowed_ips {
+                buf.put(format!("allowed_ip={}/{}\n", ip, mask).as_bytes());
+            }
             if let Some(endpoint) = peer.endpoint {
-                buf.put_slice(b"endpoint=");
-                buf.put_slice(endpoint.to_string().as_bytes());
+                buf.put(format!("endpoint={}\n", endpoint).as_bytes());
             }
             let d = peer
                 .last_handshake_at
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap();
-            buf.put_slice(b"last_handshake_time_sec=");
-            buf.put_slice(d.as_secs().to_string().as_bytes());
-            buf.put_slice(b"last_handshake_time_nsec=");
-            buf.put_slice(d.subsec_nanos().to_string().as_bytes());
-            buf.put_slice(b"tx_bytes=");
-            buf.put_slice(peer.tx_bytes.to_string().as_bytes());
-            buf.put_slice(b"rx_bytes=");
-            buf.put_slice(peer.rx_bytes.to_string().as_bytes());
-            buf.put_slice(b"persistent_keepalive_interval=");
-            buf.put_slice(peer.persistent_keepalive_interval.to_string().as_bytes());
+            buf.put(format!("last_handshake_time_sec={}\n", d.as_secs()).as_bytes());
+            buf.put(format!("last_handshake_time_nsec={}\n", d.subsec_nanos()).as_bytes());
+            buf.put(format!("tx_bytes={}\n", peer.tx_bytes).as_bytes());
+            buf.put(format!("rx_bytes={}\n", peer.rx_bytes).as_bytes());
+            buf.put(
+                format!(
+                    "persistent_keepalive_interval={}\n",
+                    peer.persistent_keepalive_interval
+                )
+                .as_bytes(),
+            );
         }
+        buf.put_slice(b"protocol_version=1\n");
+        buf.put_slice(b"errno=0\n");
+        buf.put_slice(b"\n");
         buf.freeze()
     }
 }
@@ -165,10 +179,11 @@ impl Connection {
     /// The method is not cancellation safe.
     pub async fn write(&mut self, resp: Response) {
         match resp {
-            Response::DeviceInfo(info) => {
+            Response::Get(info) => {
                 let buf: Bytes = info.into();
                 self.writer.write_all(buf.as_ref()).await.unwrap();
             }
+            _ => {}
         }
     }
 }

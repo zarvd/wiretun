@@ -1,18 +1,19 @@
 pub mod handshake;
-mod jitter;
+mod monitor;
 mod peer;
 mod peers;
 mod session;
 
-pub use peer::Peer;
-pub use peers::Peers;
+pub use monitor::PeerMetrics;
+pub(crate) use peer::Peer;
+pub(crate) use peers::Peers;
 
 use tokio::sync::mpsc;
 
 use crate::listener::Endpoint;
 use crate::noise::handshake::IncomingInitiation;
 use crate::noise::protocol;
-use jitter::Jitter;
+use monitor::PeerMonitor;
 use session::Session;
 
 #[derive(Debug)]
