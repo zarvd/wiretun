@@ -9,3 +9,4 @@ wiretun = { path = "../../" }
 tokio = { version = "1.26", features = ["full"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing = "0.1"
+base64 = "0.21"

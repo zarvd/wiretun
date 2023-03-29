@@ -12,7 +12,7 @@ pub struct DeviceConfig {
 #[derive(Default, Clone)]
 pub struct PeerConfig {
     pub public_key: [u8; 32],
-    pub allowed_ips: Vec<IpAddr>,
+    pub allowed_ips: Vec<(IpAddr, u8)>,
     pub endpoint: Option<SocketAddr>,
     pub preshared_key: Option<[u8; 32]>,
     pub persistent_keepalive: Option<u16>,
@@ -64,14 +64,14 @@ impl PeerConfig {
     }
 
     #[inline(always)]
-    pub fn allowed_ips(mut self, ips: Vec<IpAddr>) -> Self {
+    pub fn allowed_ips(mut self, ips: Vec<(IpAddr, u8)>) -> Self {
         self.allowed_ips = ips;
         self
     }
 
     #[inline(always)]
-    pub fn allowed_ip(mut self, ip: IpAddr) -> Self {
-        self.allowed_ips.push(ip);
+    pub fn allowed_ip(mut self, ip: IpAddr, mask: u8) -> Self {
+        self.allowed_ips.push((ip, mask));
         self
     }
 

@@ -4,15 +4,14 @@ use std::sync::{
     Arc, RwLock,
 };
 
-
 use tokio::sync::mpsc;
 use tokio::time;
 use tracing::{debug, info, instrument, warn};
 
 use super::session::{Session, SessionManager, Sessions};
 use super::{
-    handshake::Handshake, jitter, InboundEvent, InboundRx, InboundTx, Jitter, OutboundEvent,
-    OutboundRx, OutboundTx,
+    handshake::Handshake, monitor, InboundEvent, InboundRx, InboundTx, OutboundEvent, OutboundRx,
+    OutboundTx, PeerMetrics, PeerMonitor,
 };
 use crate::listener::Endpoint;
 use crate::noise::crypto::PeerStaticSecret;
@@ -142,6 +141,11 @@ where
     }
 
     #[inline]
+    pub fn metrics(&self) -> PeerMetrics {
+        self.inner.monitor.metrics()
+    }
+
+    #[inline]
     pub(super) fn stop(&self) {
         self.inner.running.store(false, atomic::Ordering::SeqCst);
         let _ = self.inner.inbound.blocking_send(InboundEvent::EOF);
@@ -158,7 +162,7 @@ struct Inner<T> {
     endpoint: RwLock<Option<Endpoint>>,
     inbound: InboundTx,
     outbound: OutboundTx,
-    jitter: Jitter,
+    monitor: PeerMonitor,
 }
 
 impl<T> Inner<T>
@@ -179,7 +183,7 @@ where
             endpoint: RwLock::new(None),
             inbound: inbound_tx,
             outbound: outbound_tx,
-            jitter: Jitter::new(),
+            monitor: PeerMonitor::new(),
         });
 
         tokio::spawn(loop_handshake(me.clone()));
@@ -211,7 +215,7 @@ where
 
     #[inline]
     pub async fn keepalive(&self) {
-        if !self.jitter.can_keepalive() {
+        if !self.monitor.traffic().can_keepalive() {
             return;
         }
         self.outbound
@@ -254,7 +258,7 @@ where
 {
     debug!("starting handshake loop for peer {inner}");
     while inner.running.load(atomic::Ordering::Relaxed) {
-        if inner.jitter.can_handshake_initiation() {
+        if inner.monitor.handshake().can_initiation() {
             info!("initiating handshake");
             let packet = {
                 let (next, packet) = inner.handshake.write().unwrap().initiate();
@@ -264,9 +268,9 @@ where
             };
 
             inner.send_outbound(&packet).await; // send directly
-            inner.jitter.mark_handshake_initiation();
+            inner.monitor.handshake().initiated();
         }
-        time::sleep_until(inner.jitter.next_handshake_initiation_at().into()).await;
+        time::sleep_until(inner.monitor.handshake().initiation_at().into()).await;
     }
     debug!("exiting handshake loop for peer {inner}")
     // close all loop
@@ -281,7 +285,7 @@ where
 
     loop {
         tokio::select! {
-            _ = time::sleep(jitter::KEEPALIVE_TIMEOUT) => {
+            _ = time::sleep(monitor::KEEPALIVE_TIMEOUT) => {
                 inner.keepalive().await;
             }
             event = rx.recv() => {
@@ -311,7 +315,7 @@ where
         Ok(packet) => {
             let buf = packet.to_bytes();
             inner.send_outbound(&buf).await;
-            inner.jitter.mark_outbound(buf.len() as _);
+            inner.monitor.traffic().outbound(buf.len());
         }
         Err(e) => {
             warn!("failed to encrypt packet: {}", e);
@@ -397,7 +401,7 @@ async fn handle_handshake_response<T>(
                 let mut sessions = inner.sessions.write().unwrap();
                 sessions.rotate(session);
             }
-            inner.jitter.mark_handshake_complete();
+            inner.monitor.handshake().completed();
             info!("handshake completed");
             inner.update_endpoint(endpoint);
             inner.keepalive().await; // let the peer know the session is valid
@@ -430,7 +434,7 @@ async fn handle_transport_data<T>(
         let mut sessions = inner.sessions.write().unwrap();
         if sessions.try_rotate(session.clone()) {
             info!("handshake completed");
-            inner.jitter.mark_handshake_complete();
+            inner.monitor.handshake().completed();
         }
     }
     if !session.can_accept(packet.counter) {

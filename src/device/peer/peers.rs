@@ -3,12 +3,12 @@ use std::net::IpAddr;
 use std::sync::RwLock;
 
 use super::session::{Session, SessionManager};
-use super::Peer;
+use super::{Peer, PeerMetrics};
 use crate::listener::Endpoint;
 use crate::noise::crypto::LocalStaticSecret;
 use crate::Tun;
 
-pub struct Peers<T>
+pub(crate) struct Peers<T>
 where
     T: Tun + 'static,
 {
@@ -36,7 +36,7 @@ where
     pub fn insert(
         &self,
         public_key: [u8; 32],
-        allowed_ips: &[IpAddr],
+        allowed_ips: &[(IpAddr, u8)],
         endpoint: Option<Endpoint>,
     ) -> Peer<T> {
         let mut by_static_public_key = self.by_static_public_key.write().unwrap();
@@ -50,8 +50,9 @@ where
         });
 
         let mut by_allowed_ips = self.by_allowed_ips.write().unwrap();
-        for allowed_ip in allowed_ips {
-            by_allowed_ips.insert(*allowed_ip, peer.clone());
+        for (ip, mask) in allowed_ips {
+            // FIXME: should store the mask as well
+            by_allowed_ips.insert(*ip, peer.clone());
         }
 
         peer.clone()
@@ -77,6 +78,13 @@ where
                 .map(|peer| (session, peer)),
             None => None,
         }
+    }
+
+    pub fn metrics(&self) -> HashMap<[u8; 32], PeerMetrics> {
+        let rv = self.by_static_public_key.read().unwrap().clone();
+        rv.into_iter()
+            .map(|(pub_key, peer)| (pub_key, peer.metrics()))
+            .collect()
     }
 }
 
