@@ -4,7 +4,7 @@ use std::sync::{
     Arc, RwLock,
 };
 
-use bytes::Bytes;
+
 use tokio::sync::mpsc;
 use tokio::time;
 use tracing::{debug, info, instrument, warn};
@@ -22,13 +22,19 @@ use crate::noise::{crypto, protocol};
 use crate::Tun;
 
 #[derive(Clone)]
-pub struct Peer {
-    inner: Arc<Inner>,
+pub struct Peer<T>
+where
+    T: Tun,
+{
+    inner: Arc<Inner<T>>,
 }
 
-impl Peer {
+impl<T> Peer<T>
+where
+    T: Tun + 'static,
+{
     pub(super) fn new(
-        tun: Tun,
+        tun: T,
         secret: PeerStaticSecret,
         session_mgr: SessionManager,
         endpoint: Option<Endpoint>,
@@ -49,8 +55,8 @@ impl Peer {
         initiation: IncomingInitiation,
     ) {
         {
-            let mut handshake = self.inner.handshake.write().unwrap();
-            match handshake.validate_payload(&payload) {
+            let handshake = self.inner.handshake.write().unwrap();
+            match handshake.validate_payload(payload) {
                 Ok(()) => {}
                 Err(e) => {
                     warn!("Invalid handshake initiation: {}", e);
@@ -77,8 +83,8 @@ impl Peer {
         session: Session,
     ) {
         {
-            let mut handshake = self.inner.handshake.write().unwrap();
-            match handshake.validate_payload(&payload) {
+            let handshake = self.inner.handshake.write().unwrap();
+            match handshake.validate_payload(payload) {
                 Ok(()) => {}
                 Err(e) => {
                     warn!("Invalid handshake initiation: {}", e);
@@ -131,10 +137,8 @@ impl Peer {
 
     // Stage outbound data to be sent to the peer
     #[inline]
-    pub async fn stage_outbound(&self, buf: Bytes) {
-        self.inner
-            .stage_outbound(OutboundEvent::Data(buf.to_vec()))
-            .await;
+    pub async fn stage_outbound(&self, buf: Vec<u8>) {
+        self.inner.stage_outbound(OutboundEvent::Data(buf)).await;
     }
 
     #[inline]
@@ -145,9 +149,9 @@ impl Peer {
     }
 }
 
-struct Inner {
+struct Inner<T> {
     running: AtomicBool,
-    tun: Tun,
+    tun: T,
     secret: PeerStaticSecret,
     sessions: RwLock<Sessions>,
     handshake: RwLock<Handshake>,
@@ -157,8 +161,11 @@ struct Inner {
     jitter: Jitter,
 }
 
-impl Inner {
-    pub fn new(tun: Tun, secret: PeerStaticSecret, session_mgr: SessionManager) -> Arc<Self> {
+impl<T> Inner<T>
+where
+    T: Tun + 'static,
+{
+    pub fn new(tun: T, secret: PeerStaticSecret, session_mgr: SessionManager) -> Arc<Self> {
         let (inbound_tx, inbound_rx) = mpsc::channel(256);
         let (outbound_tx, outbound_rx) = mpsc::channel(256);
         let handshake = RwLock::new(Handshake::new(secret.clone()));
@@ -220,7 +227,7 @@ impl Inner {
     }
 }
 
-impl Display for Inner {
+impl<T> Display for Inner<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -230,7 +237,7 @@ impl Display for Inner {
     }
 }
 
-impl Debug for Inner {
+impl<T> Debug for Inner<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Peer")
             .field(
@@ -241,7 +248,10 @@ impl Debug for Inner {
     }
 }
 
-async fn loop_handshake(inner: Arc<Inner>) {
+async fn loop_handshake<T>(inner: Arc<Inner<T>>)
+where
+    T: Tun + 'static,
+{
     debug!("starting handshake loop for peer {inner}");
     while inner.running.load(atomic::Ordering::Relaxed) {
         if inner.jitter.can_handshake_initiation() {
@@ -263,7 +273,10 @@ async fn loop_handshake(inner: Arc<Inner>) {
 }
 
 // Send to endpoint if connected, otherwise queue for later
-async fn loop_outbound(inner: Arc<Inner>, mut rx: OutboundRx) {
+async fn loop_outbound<T>(inner: Arc<Inner<T>>, mut rx: OutboundRx)
+where
+    T: Tun + 'static,
+{
     debug!("starting outbound loop for peer {inner}");
 
     loop {
@@ -287,7 +300,10 @@ async fn loop_outbound(inner: Arc<Inner>, mut rx: OutboundRx) {
     debug!("exiting outbound loop for peer {inner}");
 }
 
-async fn tick_outbound(inner: Arc<Inner>, data: Vec<u8>) {
+async fn tick_outbound<T>(inner: Arc<Inner<T>>, data: Vec<u8>)
+where
+    T: Tun + 'static,
+{
     let session = { inner.sessions.read().unwrap().current().clone() };
     let session = if let Some(s) = session { s } else { return };
 
@@ -304,7 +320,10 @@ async fn tick_outbound(inner: Arc<Inner>, data: Vec<u8>) {
 }
 
 // Send to tun if we have a valid session
-async fn loop_inbound(inner: Arc<Inner>, mut rx: InboundRx) {
+async fn loop_inbound<T>(inner: Arc<Inner<T>>, mut rx: InboundRx)
+where
+    T: Tun + 'static,
+{
     debug!("starting inbound loop for peer {inner}");
 
     while let Some(event) = rx.recv().await {
@@ -335,11 +354,13 @@ async fn loop_inbound(inner: Arc<Inner>, mut rx: InboundRx) {
 }
 
 #[instrument]
-async fn handle_handshake_inititation(
-    inner: Arc<Inner>,
+async fn handle_handshake_inititation<T>(
+    inner: Arc<Inner<T>>,
     endpoint: Endpoint,
     initiation: IncomingInitiation,
-) {
+) where
+    T: Tun + 'static,
+{
     let ret = {
         let mut handshake = inner.handshake.write().unwrap();
         handshake.respond(&initiation)
@@ -358,12 +379,14 @@ async fn handle_handshake_inititation(
 }
 
 #[instrument]
-async fn handle_handshake_response(
-    inner: Arc<Inner>,
+async fn handle_handshake_response<T>(
+    inner: Arc<Inner<T>>,
     endpoint: Endpoint,
     packet: HandshakeResponse,
     _session: Session,
-) {
+) where
+    T: Tun + 'static,
+{
     let ret = {
         let mut handshake = inner.handshake.write().unwrap();
         handshake.finalize(&packet)
@@ -384,21 +407,25 @@ async fn handle_handshake_response(
 }
 
 #[instrument]
-async fn handle_cookie_reply(
-    inner: Arc<Inner>,
+async fn handle_cookie_reply<T>(
+    inner: Arc<Inner<T>>,
     endpoint: Endpoint,
     packet: CookieReply,
     session: Session,
-) {
+) where
+    T: Tun + 'static,
+{
 }
 
 #[instrument]
-async fn handle_transport_data(
-    inner: Arc<Inner>,
+async fn handle_transport_data<T>(
+    inner: Arc<Inner<T>>,
     endpoint: Endpoint,
     packet: TransportData,
     session: Session,
-) {
+) where
+    T: Tun + 'static,
+{
     {
         let mut sessions = inner.sessions.write().unwrap();
         if sessions.try_rotate(session.clone()) {
@@ -420,7 +447,7 @@ async fn handle_transport_data(
                 return;
             }
 
-            inner.tun.write(&data).await.unwrap();
+            inner.tun.send(&data).await.unwrap();
             session.aceept(packet.counter);
         }
         Err(e) => debug!("failed to decrypt packet: {}", e),

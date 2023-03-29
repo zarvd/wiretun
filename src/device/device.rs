@@ -6,7 +6,7 @@ use futures::future::join_all;
 use futures::StreamExt;
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
-use tracing::{debug, error, instrument, warn};
+use tracing::{debug, error, warn};
 
 use super::peer::Peers;
 use super::{DeviceConfig, Error};
@@ -14,27 +14,42 @@ use crate::listener::Endpoint;
 use crate::noise::crypto::LocalStaticSecret;
 use crate::noise::handshake::IncomingInitiation;
 use crate::noise::protocol::Message;
-use crate::{uapi, Listener, Tun};
+use crate::{uapi, Listener, NativeTun, Tun};
 
 const MAX_PEERS: usize = 1 << 16;
 
-struct Inner {
-    tun: Tun,
+struct Inner<T>
+where
+    T: Tun + 'static,
+{
+    tun: T,
     secret: LocalStaticSecret,
-    peers: Peers,
+    peers: Peers<T>,
     cfg: DeviceConfig,
 }
 
-pub struct Device {
-    inner: Arc<Inner>,
+pub struct Device<T>
+where
+    T: Tun + 'static,
+{
+    inner: Arc<Inner<T>>,
     handles: Vec<JoinHandle<()>>,
     stop: Arc<Notify>,
 }
 
-impl Device {
-    pub async fn new(cfg: DeviceConfig) -> Result<Self, Error> {
+impl Device<NativeTun> {
+    pub async fn native(name: &str, cfg: DeviceConfig) -> Result<Self, Error> {
+        let tun = NativeTun::new(name).map_err(Error::Tun)?;
+        Device::with_tun(tun, cfg).await
+    }
+}
+
+impl<T> Device<T>
+where
+    T: Tun + 'static,
+{
+    pub async fn with_tun(tun: T, cfg: DeviceConfig) -> Result<Self, Error> {
         let inner = {
-            let tun = Tun::new("utun").map_err(Error::Tun)?;
             let secret = LocalStaticSecret::new(cfg.private_key);
             let peers = Peers::new(tun.clone(), secret.clone());
             Arc::new(Inner {
@@ -55,7 +70,7 @@ impl Device {
                 .insert(cfg.public_key, &cfg.allowed_ips, endpoint);
         }
 
-        let mut handles = vec![
+        let handles = vec![
             tokio::spawn(loop_tun_events(inner.clone(), stop.clone())),
             tokio::spawn(loop_outbound(inner.clone(), stop.clone())),
             tokio::spawn(loop_inbound(inner.clone(), listener_v4, stop.clone())),
@@ -63,7 +78,7 @@ impl Device {
             tokio::spawn(loop_uapi(inner.clone(), listener_uapi, stop.clone())),
         ];
 
-        Ok(Self {
+        Ok(Device {
             inner,
             handles,
             stop,
@@ -71,7 +86,7 @@ impl Device {
     }
 
     #[inline]
-    pub fn handle(&self) -> Handle {
+    pub fn handle(&self) -> Handle<T> {
         Handle {
             inner: self.inner.clone(),
         }
@@ -83,7 +98,10 @@ impl Device {
     }
 }
 
-impl Drop for Device {
+impl<T> Drop for Device<T>
+where
+    T: Tun,
+{
     fn drop(&mut self) {
         self.stop.notify_waiters();
         for handle in self.handles.drain(..) {
@@ -93,19 +111,28 @@ impl Drop for Device {
 }
 
 #[derive(Clone)]
-pub struct Handle {
-    inner: Arc<Inner>,
+pub struct Handle<T>
+where
+    T: Tun + 'static,
+{
+    inner: Arc<Inner<T>>,
 }
 
-impl Handle {
+impl<T> Handle<T>
+where
+    T: Tun + 'static,
+{
     pub fn fetch_config(&self) -> DeviceConfig {
         todo!()
     }
 
-    pub fn update_config(&self, cfg: DeviceConfig) {}
+    pub fn update_config(&self, _cfg: DeviceConfig) {}
 }
 
-async fn loop_tun_events(inner: Arc<Inner>, stop_notify: Arc<Notify>) {
+async fn loop_tun_events<T>(inner: Arc<Inner<T>>, stop_notify: Arc<Notify>)
+where
+    T: Tun + 'static,
+{
     debug!("starting tun events loop");
     loop {
         tokio::select! {
@@ -119,11 +146,17 @@ async fn loop_tun_events(inner: Arc<Inner>, stop_notify: Arc<Notify>) {
 }
 
 #[inline]
-async fn tick_tun_events(_inner: Arc<Inner>) {
+async fn tick_tun_events<T>(_inner: Arc<Inner<T>>)
+where
+    T: Tun + 'static,
+{
     tokio::time::sleep(Duration::from_secs(5)).await;
 }
 
-async fn loop_inbound(inner: Arc<Inner>, mut listener: Listener, stop_notify: Arc<Notify>) {
+async fn loop_inbound<T>(inner: Arc<Inner<T>>, mut listener: Listener, stop_notify: Arc<Notify>)
+where
+    T: Tun + 'static,
+{
     debug!("starting inbound loop for {}", listener);
     loop {
         tokio::select! {
@@ -140,7 +173,10 @@ async fn loop_inbound(inner: Arc<Inner>, mut listener: Listener, stop_notify: Ar
     }
 }
 
-async fn tick_inbound(inner: Arc<Inner>, endpoint: Endpoint, payload: Vec<u8>) {
+async fn tick_inbound<T>(inner: Arc<Inner<T>>, endpoint: Endpoint, payload: Vec<u8>)
+where
+    T: Tun + 'static,
+{
     match Message::parse(&payload) {
         Ok(Message::HandshakeInitiation(p)) => {
             let initiation =
@@ -184,7 +220,10 @@ async fn tick_inbound(inner: Arc<Inner>, endpoint: Endpoint, payload: Vec<u8>) {
     }
 }
 
-async fn loop_outbound(inner: Arc<Inner>, stop_notify: Arc<Notify>) {
+async fn loop_outbound<T>(inner: Arc<Inner<T>>, stop_notify: Arc<Notify>)
+where
+    T: Tun + 'static,
+{
     debug!("starting outbound loop");
     loop {
         tokio::select! {
@@ -197,11 +236,14 @@ async fn loop_outbound(inner: Arc<Inner>, stop_notify: Arc<Notify>) {
     }
 }
 
-async fn tick_outbound(inner: Arc<Inner>) {
+async fn tick_outbound<T>(inner: Arc<Inner<T>>)
+where
+    T: Tun + 'static,
+{
     const IPV4_HEADER_LEN: usize = 20;
     const IPV6_HEADER_LEN: usize = 40;
 
-    match inner.tun.read().await {
+    match inner.tun.recv().await {
         Ok(buf) => {
             let dst = {
                 match buf[0] & 0xF0 {
@@ -236,7 +278,10 @@ async fn tick_outbound(inner: Arc<Inner>) {
     }
 }
 
-async fn loop_uapi(inner: Arc<Inner>, uapi: uapi::Listener, stop_notify: Arc<Notify>) {
+async fn loop_uapi<T>(inner: Arc<Inner<T>>, uapi: uapi::Listener, stop_notify: Arc<Notify>)
+where
+    T: Tun + 'static,
+{
     debug!("starting uapi loop");
     loop {
         tokio::select! {
@@ -257,7 +302,13 @@ async fn loop_uapi(inner: Arc<Inner>, uapi: uapi::Listener, stop_notify: Arc<Not
     }
 }
 
-async fn handle_uapi_conn(inner: Arc<Inner>, mut conn: uapi::Connection, stop_notify: Arc<Notify>) {
+async fn handle_uapi_conn<T>(
+    _inner: Arc<Inner<T>>,
+    mut conn: uapi::Connection,
+    stop_notify: Arc<Notify>,
+) where
+    T: Tun + 'static,
+{
     loop {
         tokio::select! {
             _ = stop_notify.notified() => {

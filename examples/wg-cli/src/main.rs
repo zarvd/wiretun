@@ -17,7 +17,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .init();
 
     let cfg = DeviceConfig::default();
-    let device = Device::new(cfg).await?;
+    let device = Device::native("utun", cfg).await?;
 
     let handle = device.handle();
 

@@ -8,16 +8,22 @@ use crate::listener::Endpoint;
 use crate::noise::crypto::LocalStaticSecret;
 use crate::Tun;
 
-pub struct Peers {
-    tun: Tun,
+pub struct Peers<T>
+where
+    T: Tun + 'static,
+{
+    tun: T,
     secret: LocalStaticSecret,
     session_mgr: SessionManager,
-    by_static_public_key: RwLock<HashMap<[u8; 32], Peer>>,
-    by_allowed_ips: RwLock<HashMap<IpAddr, Peer>>,
+    by_static_public_key: RwLock<HashMap<[u8; 32], Peer<T>>>,
+    by_allowed_ips: RwLock<HashMap<IpAddr, Peer<T>>>,
 }
 
-impl Peers {
-    pub fn new(tun: Tun, secret: LocalStaticSecret) -> Self {
+impl<T> Peers<T>
+where
+    T: Tun + 'static,
+{
+    pub fn new(tun: T, secret: LocalStaticSecret) -> Self {
         Self {
             tun,
             secret,
@@ -32,7 +38,7 @@ impl Peers {
         public_key: [u8; 32],
         allowed_ips: &[IpAddr],
         endpoint: Option<Endpoint>,
-    ) -> Peer {
+    ) -> Peer<T> {
         let mut by_static_public_key = self.by_static_public_key.write().unwrap();
         let peer = by_static_public_key.entry(public_key).or_insert_with(|| {
             Peer::new(
@@ -52,19 +58,19 @@ impl Peers {
     }
 
     /// Returns the peer that matches the given public key.
-    pub fn by_static_public_key(&self, public_key: &[u8; 32]) -> Option<Peer> {
+    pub fn by_static_public_key(&self, public_key: &[u8; 32]) -> Option<Peer<T>> {
         let index = self.by_static_public_key.read().unwrap();
         index.get(public_key).cloned()
     }
 
     /// Returns the peer that matches the given IP address.
-    pub fn by_allow_ip(&self, ip: IpAddr) -> Option<Peer> {
+    pub fn by_allow_ip(&self, ip: IpAddr) -> Option<Peer<T>> {
         let index = self.by_allowed_ips.read().unwrap();
         index.get(&ip).cloned()
     }
 
     /// Returns the peer that matches the index of the session.
-    pub fn by_index(&self, i: u32) -> Option<(Session, Peer)> {
+    pub fn by_index(&self, i: u32) -> Option<(Session, Peer<T>)> {
         match self.session_mgr.get_by_index(i) {
             Some((session, pub_key)) => self
                 .by_static_public_key(&pub_key)
@@ -74,7 +80,10 @@ impl Peers {
     }
 }
 
-impl Drop for Peers {
+impl<T> Drop for Peers<T>
+where
+    T: Tun + 'static,
+{
     fn drop(&mut self) {
         for peer in self.by_static_public_key.write().unwrap().values() {
             peer.stop();

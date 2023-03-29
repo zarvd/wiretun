@@ -10,4 +10,4 @@ mod uapi;
 #[cfg(target_os = "macos")]
 pub use device::{Device, DeviceConfig, PeerConfig};
 pub use listener::Listener;
-pub use tun::Tun;
+pub use tun::{NativeTun, Tun};
