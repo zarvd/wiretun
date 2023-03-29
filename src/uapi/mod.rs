@@ -1,3 +1,5 @@
+mod error;
 mod listener;
 
-pub use listener::{DeviceInfo, Listener, Operation, PeerInfo, Response};
+pub use error::Error;
+pub use listener::{Connection, DeviceInfo, Listener, Operation, PeerInfo, Response};

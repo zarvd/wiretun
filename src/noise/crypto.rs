@@ -159,12 +159,10 @@ pub fn aead_encrypt(key: &[u8], counter: u64, msg: &[u8], aad: &[u8]) -> Result<
         nonce
     };
 
-    let cipher = chacha20poly1305::ChaCha20Poly1305::new_from_slice(key)
-        .map_err(|_| Error::InvalidKeyLength)?;
-    let rv = cipher
+    chacha20poly1305::ChaCha20Poly1305::new_from_slice(key)
+        .map_err(|_| Error::InvalidKeyLength)?
         .encrypt(Nonce::from_slice(&nonce), Payload { msg, aad })
-        .map_err(Error::Encryption)?;
-    Ok(rv)
+        .map_err(Error::Encryption)
 }
 
 #[inline]
@@ -176,37 +174,30 @@ pub fn aead_decrypt(key: &[u8], counter: u64, msg: &[u8], aad: &[u8]) -> Result<
         nonce[4..].copy_from_slice(&counter.to_le_bytes());
         nonce
     };
-    let cipher = chacha20poly1305::ChaCha20Poly1305::new_from_slice(key)
-        .map_err(|_| Error::InvalidKeyLength)?;
-    let rv = cipher
+    chacha20poly1305::ChaCha20Poly1305::new_from_slice(key)
+        .map_err(|_| Error::InvalidKeyLength)?
         .decrypt(Nonce::from_slice(&nonce), Payload { msg, aad })
-        .map_err(Error::Encryption)?;
-    Ok(rv)
+        .map_err(Error::Encryption)
 }
 
 #[inline]
 pub fn xaead_encrypt(key: &[u8], nonce: &[u8], msg: &[u8], aad: &[u8]) -> Result<Vec<u8>, Error> {
     use chacha20poly1305::aead::{Aead, Payload};
     use chacha20poly1305::{KeyInit, XNonce};
-    let cipher = chacha20poly1305::XChaCha20Poly1305::new_from_slice(key)
-        .map_err(|_| Error::InvalidKeyLength)?;
-    let rv = cipher
+    chacha20poly1305::XChaCha20Poly1305::new_from_slice(key)
+        .map_err(|_| Error::InvalidKeyLength)?
         .encrypt(XNonce::from_slice(nonce), Payload { msg, aad })
-        .map_err(Error::Encryption)?;
-    Ok(rv)
+        .map_err(Error::Encryption)
 }
 
 #[inline]
 pub fn xaead_decrypt(key: &[u8], nonce: &[u8], msg: &[u8], aad: &[u8]) -> Result<Vec<u8>, Error> {
     use chacha20poly1305::aead::{Aead, Payload};
     use chacha20poly1305::{KeyInit, XNonce};
-    let cipher = chacha20poly1305::XChaCha20Poly1305::new_from_slice(key)
-        .map_err(|_| Error::InvalidKeyLength)?;
-
-    let rv = cipher
+    chacha20poly1305::XChaCha20Poly1305::new_from_slice(key)
+        .map_err(|_| Error::InvalidKeyLength)?
         .decrypt(XNonce::from_slice(nonce), Payload { msg, aad })
-        .map_err(Error::Encryption)?;
-    Ok(rv)
+        .map_err(Error::Encryption)
 }
 
 #[cfg(test)]

@@ -10,8 +10,6 @@ documentation = "https://docs.rs/wiretun"
 license = "Apache-2.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 libc = "0.2"
 bytes = "1.4"
@@ -22,8 +20,8 @@ anyhow = "1.0"
 thiserror = "1.0"
 tracing = "0.1"
 futures = "0.3"
+async-trait = "0.1"
 tokio = { version = "1.26", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
 toml = "0.7"
 chacha20poly1305 = "0.10"
 x25519-dalek = { version = "2.0.0-pre.1", features = ["reusable_secrets"] }

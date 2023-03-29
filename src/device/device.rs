@@ -1,6 +1,4 @@
-use std::mem;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::str::FromStr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -8,10 +6,10 @@ use futures::future::join_all;
 use futures::StreamExt;
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, instrument, warn};
 
 use super::peer::Peers;
-use super::Error;
+use super::{DeviceConfig, Error};
 use crate::listener::Endpoint;
 use crate::noise::crypto::LocalStaticSecret;
 use crate::noise::handshake::IncomingInitiation;
@@ -19,18 +17,6 @@ use crate::noise::protocol::Message;
 use crate::{uapi, Listener, Tun};
 
 const MAX_PEERS: usize = 1 << 16;
-
-pub struct PeerConfig {
-    pub static_public_key: [u8; 32],
-    pub allowed_ips: Vec<IpAddr>,
-    pub endpoint: String,
-}
-
-pub struct DeviceConfig {
-    pub tun_name: String,
-    pub static_private_key: [u8; 32],
-    pub peers: Vec<PeerConfig>,
-}
 
 struct Inner {
     tun: Tun,
@@ -41,66 +27,82 @@ struct Inner {
 
 pub struct Device {
     inner: Arc<Inner>,
+    handles: Vec<JoinHandle<()>>,
+    stop: Arc<Notify>,
 }
 
 impl Device {
-    pub fn new(cfg: DeviceConfig) -> Result<Self, Error> {
-        let tun = Tun::new(&cfg.tun_name).map_err(Error::Tun)?;
-        let secret = LocalStaticSecret::new(cfg.static_private_key);
-        let peers = Peers::new(tun.clone(), secret.clone());
-
-        Ok(Self {
-            inner: Arc::new(Inner {
+    pub async fn new(cfg: DeviceConfig) -> Result<Self, Error> {
+        let inner = {
+            let tun = Tun::new("utun").map_err(Error::Tun)?;
+            let secret = LocalStaticSecret::new(cfg.private_key);
+            let peers = Peers::new(tun.clone(), secret.clone());
+            Arc::new(Inner {
                 tun,
                 secret,
                 peers,
                 cfg,
-            }),
-        })
-    }
+            })
+        };
 
-    pub async fn start(self, listen_port: u16) -> Result<Handle, Error> {
-        let stop_notify = Arc::new(Notify::new());
-
-        let listeners = Listener::with_port(listen_port).await?;
+        let stop = Arc::new(Notify::new());
+        let (listener_v4, listener_v6) = Listener::with_port(inner.cfg.listen_port).await?;
+        let listener_uapi = uapi::Listener::bind(inner.tun.name());
+        for cfg in &inner.cfg.peers {
+            let endpoint = cfg.endpoint.map(|addr| listener_v4.endpoint_for(addr));
+            inner
+                .peers
+                .insert(cfg.public_key, &cfg.allowed_ips, endpoint);
+        }
 
         let mut handles = vec![
-            tokio::spawn(loop_tun_events(self.inner.clone(), stop_notify.clone())),
-            tokio::spawn(loop_outbound(self.inner.clone(), stop_notify.clone())),
+            tokio::spawn(loop_tun_events(inner.clone(), stop.clone())),
+            tokio::spawn(loop_outbound(inner.clone(), stop.clone())),
+            tokio::spawn(loop_inbound(inner.clone(), listener_v4, stop.clone())),
+            tokio::spawn(loop_inbound(inner.clone(), listener_v6, stop.clone())),
+            tokio::spawn(loop_uapi(inner.clone(), listener_uapi, stop.clone())),
         ];
 
-        for cfg in &self.inner.cfg.peers {
-            let endpoint = if let Ok(dst) = SocketAddr::from_str(&cfg.endpoint) {
-                Some(listeners[0].endpoint_for(dst))
-            } else {
-                None
-            };
-            let _p = self
-                .inner
-                .peers
-                .insert(cfg.static_public_key, &cfg.allowed_ips, endpoint);
-        }
-
-        for listener in listeners {
-            handles.push(tokio::spawn(loop_inbound(
-                self.inner.clone(),
-                listener,
-                stop_notify.clone(),
-            )));
-        }
-
-        let uapi = uapi::Listener::bind(self.inner.tun.name());
-        handles.push(tokio::spawn(loop_uapi(
-            self.inner.clone(),
-            uapi,
-            stop_notify.clone(),
-        )));
-
-        Ok(Handle {
+        Ok(Self {
+            inner,
             handles,
-            stop_notify,
+            stop,
         })
     }
+
+    #[inline]
+    pub fn handle(&self) -> Handle {
+        Handle {
+            inner: self.inner.clone(),
+        }
+    }
+
+    pub async fn terminate(mut self) {
+        self.stop.notify_waiters();
+        join_all(self.handles.drain(..)).await;
+    }
+}
+
+impl Drop for Device {
+    fn drop(&mut self) {
+        self.stop.notify_waiters();
+        for handle in self.handles.drain(..) {
+            handle.abort();
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct Handle {
+    inner: Arc<Inner>,
+}
+
+impl Handle {
+    pub fn fetch_config(&self) -> DeviceConfig {
+        todo!()
+    }
+
+    pub fn update_config(&self, cfg: DeviceConfig) {}
 }
 
 async fn loop_tun_events(inner: Arc<Inner>, stop_notify: Arc<Notify>) {
@@ -138,7 +140,6 @@ async fn loop_inbound(inner: Arc<Inner>, mut listener: Listener, stop_notify: Ar
     }
 }
 
-#[inline]
 async fn tick_inbound(inner: Arc<Inner>, endpoint: Endpoint, payload: Vec<u8>) {
     match Message::parse(&payload) {
         Ok(Message::HandshakeInitiation(p)) => {
@@ -245,12 +246,9 @@ async fn loop_uapi(inner: Arc<Inner>, uapi: uapi::Listener, stop_notify: Arc<Not
             }
             conn = uapi.accept() => {
                 match conn {
-                    Ok(_conn) => {
+                    Ok(conn) => {
                         debug!("accepted uapi connection");
-                        let _inner = inner.clone();
-                        tokio::spawn(async move {
-                            // loop conn opeartion and respond
-                        });
+                        tokio::spawn(handle_uapi_conn(inner.clone(), conn, stop_notify.clone()));
                     }
                     Err(_) => {}
                 }
@@ -259,24 +257,24 @@ async fn loop_uapi(inner: Arc<Inner>, uapi: uapi::Listener, stop_notify: Arc<Not
     }
 }
 
-pub struct Handle {
-    handles: Vec<JoinHandle<()>>,
-    stop_notify: Arc<Notify>,
-}
-
-impl Handle {
-    pub async fn wait(mut self) {
-        join_all(mem::take(&mut self.handles)).await;
-    }
-
-    pub async fn terminate(self) {
-        self.stop_notify.notify_waiters();
-        self.wait().await
-    }
-}
-
-impl Drop for Handle {
-    fn drop(&mut self) {
-        self.stop_notify.notify_waiters();
+async fn handle_uapi_conn(inner: Arc<Inner>, mut conn: uapi::Connection, stop_notify: Arc<Notify>) {
+    loop {
+        tokio::select! {
+            _ = stop_notify.notified() => {
+                debug!("stopping uapi connection");
+                return;
+            }
+            op = conn.next() => {
+                match op {
+                    Ok(uapi::Operation::Get) => {
+                        debug!("received uapi get config");
+                    }
+                    Ok(uapi::Operation::Set) => {
+                        debug!("received uapi set config");
+                    }
+                    _ => break,
+                }
+            }
+        }
     }
 }

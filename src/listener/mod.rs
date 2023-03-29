@@ -16,11 +16,11 @@ pub struct Listener {
 }
 
 impl Listener {
-    pub async fn new() -> Result<Vec<Self>, io::Error> {
+    pub async fn new() -> Result<(Self, Self), io::Error> {
         Self::with_port(0).await
     }
 
-    pub async fn with_port(port: u16) -> Result<Vec<Self>, io::Error> {
+    pub async fn with_port(port: u16) -> Result<(Self, Self), io::Error> {
         loop {
             let ipv4 = UdpSocket::bind(SocketAddr::new("0.0.0.0".parse().unwrap(), port)).await?;
             let ipv6 = match UdpSocket::bind(SocketAddr::new(
@@ -42,15 +42,19 @@ impl Listener {
             info!("Listening on {}", ipv4.local_addr()?);
             info!("Listening on {}", ipv6.local_addr()?);
 
-            return Ok(vec![
+            return Ok((
                 Self {
                     socket: Arc::new(ipv4),
                 },
                 Self {
                     socket: Arc::new(ipv6),
                 },
-            ]);
+            ));
         }
+    }
+
+    pub fn listening_port(&self) -> u16 {
+        self.socket.local_addr().unwrap().port()
     }
 
     pub fn endpoint_for(&self, dst: SocketAddr) -> Endpoint {

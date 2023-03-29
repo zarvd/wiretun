@@ -1,5 +1,4 @@
 use std::sync::atomic::{AtomicU64, Ordering};
-
 use std::time::{Duration, Instant};
 
 const REKEY_AFTER_MESSAGES: u64 = 1 << 60;
