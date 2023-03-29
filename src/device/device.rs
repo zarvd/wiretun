@@ -15,7 +15,7 @@ use crate::listener::Endpoint;
 use crate::noise::crypto::LocalStaticSecret;
 use crate::noise::handshake::IncomingInitiation;
 use crate::noise::protocol::Message;
-use crate::{uapi, Listener, NativeTun, Tun};
+use crate::{Listener, NativeTun, Tun};
 
 const MAX_PEERS: usize = 1 << 16;
 
@@ -69,7 +69,6 @@ where
         let (listener_v4, listener_v6) = Listener::with_port(cfg.listen_port).await?;
         // update cfg.listen_port in case it was 0
         cfg.listen_port = listener_v4.listening_port();
-        let listener_uapi = uapi::Listener::bind(tun.name());
         let peers = Peers::new(tun.clone(), secret.clone());
         for cfg in &cfg.peers {
             let endpoint = cfg.endpoint.map(|addr| listener_v4.endpoint_for(addr));
@@ -90,7 +89,6 @@ where
             tokio::spawn(loop_outbound(inner.clone(), stop.clone())),
             tokio::spawn(loop_inbound(inner.clone(), listener_v4, stop.clone())),
             tokio::spawn(loop_inbound(inner.clone(), listener_v6, stop.clone())),
-            tokio::spawn(loop_uapi(inner.clone(), listener_uapi, stop.clone())),
         ];
 
         Ok(Device {
@@ -101,8 +99,8 @@ where
     }
 
     #[inline]
-    pub fn handle(&self) -> Handle<T> {
-        Handle {
+    pub fn handle(&self) -> DeviceHandle<T> {
+        DeviceHandle {
             inner: self.inner.clone(),
         }
     }
@@ -126,19 +124,23 @@ where
 }
 
 #[derive(Clone)]
-pub struct Handle<T>
+pub struct DeviceHandle<T>
 where
     T: Tun + 'static,
 {
     inner: Arc<Inner<T>>,
 }
 
-impl<T> Handle<T>
+impl<T> DeviceHandle<T>
 where
     T: Tun + 'static,
 {
+    pub fn tun_name(&self) -> &str {
+        self.inner.tun.name()
+    }
+
     pub fn config(&self) -> DeviceConfig {
-        todo!()
+        self.inner.config()
     }
 
     #[inline]
@@ -146,7 +148,9 @@ where
         self.inner.metrics()
     }
 
-    pub fn update_config(&self, _cfg: DeviceConfig) {}
+    pub fn update_config(&self, _cfg: DeviceConfig) {
+        todo!()
+    }
 }
 
 async fn loop_tun_events<T>(inner: Arc<Inner<T>>, stop_notify: Arc<Notify>)
@@ -296,89 +300,4 @@ where
             error!("TUN read error: {}", e)
         }
     }
-}
-
-async fn loop_uapi<T>(inner: Arc<Inner<T>>, uapi: uapi::Listener, stop_notify: Arc<Notify>)
-where
-    T: Tun + 'static,
-{
-    debug!("starting uapi loop");
-    loop {
-        tokio::select! {
-            _ = stop_notify.notified() => {
-                debug!("stopping uapi loop");
-                return;
-            }
-            conn = uapi.accept() => {
-                match conn {
-                    Ok(conn) => {
-                        debug!("accepted uapi connection");
-                        tokio::spawn(handle_uapi_conn(inner.clone(), conn, stop_notify.clone()));
-                    }
-                    Err(_) => {}
-                }
-            }
-        }
-    }
-}
-
-async fn handle_uapi_conn<T>(
-    inner: Arc<Inner<T>>,
-    mut conn: uapi::Connection,
-    stop_notify: Arc<Notify>,
-) where
-    T: Tun + 'static,
-{
-    loop {
-        tokio::select! {
-            _ = stop_notify.notified() => {
-                debug!("stopping uapi connection");
-                return;
-            }
-            op = conn.next() => {
-                match op {
-                    Ok(uapi::Operation::Get) => handle_uapi_get(inner.clone(), &mut conn).await,
-                    Ok(uapi::Operation::Set) => {
-                        debug!("received uapi set config");
-                    }
-                    _ => break,
-                }
-            }
-        }
-    }
-}
-
-async fn handle_uapi_get<T>(inner: Arc<Inner<T>>, conn: &mut uapi::Connection)
-where
-    T: Tun + 'static,
-{
-    let cfg = inner.config();
-    let mut metrics = inner.metrics();
-
-    let peers = cfg
-        .peers
-        .into_iter()
-        .map(|p| {
-            let m = metrics.peers.remove(&p.public_key).unwrap();
-            uapi::PeerInfo {
-                public_key: p.public_key,
-                psk: p.preshared_key.unwrap_or_default(),
-                allowed_ips: p.allowed_ips,
-                endpoint: p.endpoint,
-                last_handshake_at: m.last_handshake_at,
-                tx_bytes: m.tx_bytes,
-                rx_bytes: m.rx_bytes,
-                persistent_keepalive_interval: 0,
-            }
-        })
-        .collect();
-    let info = uapi::DeviceInfo {
-        private_key: cfg.private_key,
-        listen_port: cfg.listen_port,
-        fwmark: 0,
-        peers,
-    };
-
-    let resp = uapi::Response::Get(info);
-    conn.write(resp).await;
 }

@@ -1,12 +1,10 @@
 use std::error::Error;
-use std::time::Duration;
 
 use base64::engine::general_purpose::STANDARD as base64Encoding;
 use base64::Engine;
-use tokio::time;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use wiretun::{Device, DeviceConfig, PeerConfig};
+use wiretun::{uapi, Device, DeviceConfig, PeerConfig};
 
 fn decode_base64(s: &str) -> Vec<u8> {
     base64Encoding.decode(s).unwrap()
@@ -43,10 +41,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         );
     let device = Device::native("utun", cfg).await?;
 
-    let _handle = device.handle();
-    // use handle to fetch metrics and configure the device
-
-    time::sleep(Duration::from_secs(60 * 60)).await;
+    uapi::bind_and_handle(device.handle()).await?;
 
     Ok(())
 }

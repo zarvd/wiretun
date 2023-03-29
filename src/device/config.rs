@@ -3,7 +3,6 @@ use std::time::Duration;
 
 #[derive(Default, Clone)]
 pub struct DeviceConfig {
-    pub enable_uapi: bool,
     pub private_key: [u8; 32],
     pub listen_port: u16,
     pub peers: Vec<PeerConfig>,
@@ -19,18 +18,6 @@ pub struct PeerConfig {
 }
 
 impl DeviceConfig {
-    #[inline(always)]
-    pub fn enable_uapi(mut self) -> Self {
-        self.enable_uapi = true;
-        self
-    }
-
-    #[inline(always)]
-    pub fn disable_uapi(mut self) -> Self {
-        self.enable_uapi = false;
-        self
-    }
-
     #[inline(always)]
     pub fn private_key(mut self, key: [u8; 32]) -> Self {
         self.private_key = key;

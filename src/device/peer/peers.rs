@@ -50,7 +50,7 @@ where
         });
 
         let mut by_allowed_ips = self.by_allowed_ips.write().unwrap();
-        for (ip, mask) in allowed_ips {
+        for (ip, _mask) in allowed_ips {
             // FIXME: should store the mask as well
             by_allowed_ips.insert(*ip, peer.clone());
         }
