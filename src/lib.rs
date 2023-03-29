@@ -1,6 +1,5 @@
 #![allow(dead_code)] // FIXME: Remove it before release
 
-mod config;
 #[cfg(target_os = "macos")]
 mod device;
 mod listener;

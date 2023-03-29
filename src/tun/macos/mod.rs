@@ -1,4 +1,4 @@
 mod sys;
 mod tun;
 
-pub use tun::{Error, Tun};
+pub use tun::Tun;

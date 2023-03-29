@@ -9,6 +9,7 @@ use tokio::io::unix::AsyncFd;
 use tracing::debug;
 
 use super::sys;
+use crate::tun::Error;
 
 #[inline]
 fn parse_name(name: &str) -> Result<u32, Error> {
@@ -149,14 +150,6 @@ impl Tun {
 
         Ok(())
     }
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("Interface must be named utun[0-9]*")]
-    InvalidName,
-    #[error("System call failed: {0}")]
-    IOError(#[from] io::Error),
 }
 
 #[cfg(test)]
