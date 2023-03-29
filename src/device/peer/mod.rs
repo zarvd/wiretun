@@ -10,7 +10,7 @@ pub(crate) use peers::Peers;
 
 use tokio::sync::mpsc;
 
-use crate::listener::Endpoint;
+use crate::device::outbound::Endpoint;
 use crate::noise::handshake::IncomingInitiation;
 use crate::noise::protocol;
 use monitor::PeerMonitor;

@@ -8,14 +8,14 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, warn};
 
+use super::outbound::{Endpoint, Listener};
 use super::peer::Peers;
 use super::{DeviceConfig, Error};
 use crate::device::DeviceMetrics;
-use crate::listener::Endpoint;
 use crate::noise::crypto::LocalStaticSecret;
 use crate::noise::handshake::IncomingInitiation;
 use crate::noise::protocol::Message;
-use crate::{Listener, NativeTun, Tun};
+use crate::Tun;
 
 const MAX_PEERS: usize = 1 << 16;
 
@@ -43,6 +43,24 @@ where
     }
 }
 
+/// A WireGuard device.
+///
+/// When enabled with the `tun-native` feature, you can create a native device using the method [`native`](`Device::native`).
+///
+/// # Examples
+///
+/// Using `native`:
+/// ```no_run
+/// use wiretun::{Device, DeviceConfig, uapi};
+///
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let cfg = DeviceConfig::default();
+///     let device = Device::native("utun", cfg).await?;
+///
+///     uapi::bind_and_handle(device.handle()).await?;
+/// }
+/// ```
 pub struct Device<T>
 where
     T: Tun + 'static,
@@ -52,9 +70,10 @@ where
     stop: Arc<Notify>,
 }
 
-impl Device<NativeTun> {
+#[cfg(feature = "tun-native")]
+impl Device<crate::NativeTun> {
     pub async fn native(name: &str, cfg: DeviceConfig) -> Result<Self, Error> {
-        let tun = NativeTun::new(name).map_err(Error::Tun)?;
+        let tun = crate::NativeTun::new(name).map_err(Error::Tun)?;
         Device::with_tun(tun, cfg).await
     }
 }
@@ -66,9 +85,8 @@ where
     pub async fn with_tun(tun: T, mut cfg: DeviceConfig) -> Result<Self, Error> {
         let stop = Arc::new(Notify::new());
         let secret = LocalStaticSecret::new(cfg.private_key);
-        let (listener_v4, listener_v6) = Listener::with_port(cfg.listen_port).await?;
-        // update cfg.listen_port in case it was 0
-        cfg.listen_port = listener_v4.listening_port();
+        let (listener_v4, listener_v6) = Listener::bind(cfg.listen_port).await?;
+        cfg.listen_port = listener_v4.listening_port(); // update cfg.listen_port in case it was 0
         let peers = Peers::new(tun.clone(), secret.clone());
         for cfg in &cfg.peers {
             let endpoint = cfg.endpoint.map(|addr| listener_v4.endpoint_for(addr));

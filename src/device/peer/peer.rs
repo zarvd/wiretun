@@ -13,7 +13,7 @@ use super::{
     handshake::Handshake, monitor, InboundEvent, InboundRx, InboundTx, OutboundEvent, OutboundRx,
     OutboundTx, PeerMetrics, PeerMonitor,
 };
-use crate::listener::Endpoint;
+use crate::device::outbound::Endpoint;
 use crate::noise::crypto::PeerStaticSecret;
 use crate::noise::handshake::IncomingInitiation;
 use crate::noise::protocol::{CookieReply, HandshakeResponse, TransportData};
@@ -21,7 +21,7 @@ use crate::noise::{crypto, protocol};
 use crate::Tun;
 
 #[derive(Clone)]
-pub struct Peer<T>
+pub(crate) struct Peer<T>
 where
     T: Tun,
 {
@@ -134,7 +134,7 @@ where
             .await;
     }
 
-    // Stage outbound data to be sent to the peer
+    /// Stage outbound data to be sent to the peer
     #[inline]
     pub async fn stage_outbound(&self, buf: Vec<u8>) {
         self.inner.stage_outbound(OutboundEvent::Data(buf)).await;
@@ -145,6 +145,8 @@ where
         self.inner.monitor.metrics()
     }
 
+    /// Stop the peer and all its associated tasks.
+    /// The lifetime of the peer is managed by the [`Peers`].
     #[inline]
     pub(super) fn stop(&self) {
         self.inner.running.store(false, atomic::Ordering::SeqCst);
@@ -193,26 +195,19 @@ where
         me
     }
 
+    /// Stage inbound data from tun.
     #[inline]
     pub async fn stage_inbound(&self, e: InboundEvent) {
         self.inbound.send(e).await.unwrap();
     }
 
+    /// Stage outbound data to be sent to the peer.
     #[inline]
     pub async fn stage_outbound(&self, e: OutboundEvent) {
         self.outbound.send(e).await.unwrap();
     }
 
-    #[inline]
-    pub async fn send_outbound(&self, buf: &[u8]) {
-        let endpoint = { self.endpoint.read().unwrap().clone() };
-        if let Some(endpoint) = endpoint {
-            endpoint.send(buf).await.unwrap();
-        } else {
-            debug!("no endpoint to send outbound packet to peer {self}");
-        }
-    }
-
+    /// Send keepalive packet to the peer if the traffic is idle.
     #[inline]
     pub async fn keepalive(&self) {
         if !self.monitor.traffic().can_keepalive() {
@@ -224,10 +219,24 @@ where
             .unwrap();
     }
 
+    /// Update the endpoint of the peer.
+    /// Could be called by IPC or the inbound loop.
     #[inline]
     pub fn update_endpoint(&self, endpoint: Endpoint) {
         let mut guard = self.endpoint.write().unwrap();
         let _ = guard.insert(endpoint);
+    }
+
+    /// Send outbound data to the peer.
+    /// This method is called by the outbound loop and handshake loop.
+    #[inline]
+    async fn send_outbound(&self, buf: &[u8]) {
+        let endpoint = { self.endpoint.read().unwrap().clone() };
+        if let Some(endpoint) = endpoint {
+            endpoint.send(buf).await.unwrap();
+        } else {
+            debug!("no endpoint to send outbound packet to peer {self}");
+        }
     }
 }
 
@@ -378,7 +387,7 @@ async fn handle_handshake_inititation<T>(
             inner.update_endpoint(endpoint.clone());
             endpoint.send(&packet).await.unwrap();
         }
-        Err(e) => debug!("failed to respond to handshake initiation: {}", e),
+        Err(e) => debug!("failed to respond to handshake initiation: {e}"),
     }
 }
 
@@ -406,7 +415,7 @@ async fn handle_handshake_response<T>(
             inner.update_endpoint(endpoint);
             inner.keepalive().await; // let the peer know the session is valid
         }
-        Err(e) => debug!("failed to finalize handshake: {}", e),
+        Err(e) => debug!("failed to finalize handshake: {e}"),
     }
 }
 
@@ -454,6 +463,6 @@ async fn handle_transport_data<T>(
             inner.tun.send(&data).await.unwrap();
             session.aceept(packet.counter);
         }
-        Err(e) => debug!("failed to decrypt packet: {}", e),
+        Err(e) => debug!("failed to decrypt packet: {e}"),
     }
 }

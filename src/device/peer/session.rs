@@ -10,7 +10,7 @@ use crate::noise::crypto::PeerStaticSecret;
 use crate::noise::{crypto, protocol};
 
 #[derive(Clone)]
-pub struct Session {
+pub(crate) struct Session {
     sender_index: u32,
     sender_nonce: Arc<AtomicU64>,
     sender_key: [u8; 32],
@@ -37,11 +37,6 @@ impl Session {
             nonce_filter: Arc::new(Mutex::new(NonceFilter::new())),
             created_at: Instant::now(),
         }
-    }
-
-    #[inline]
-    fn noop() -> Self {
-        Self::new(0, [0; 32], 0, [0; 32])
     }
 
     #[inline]
@@ -76,31 +71,6 @@ impl Session {
     pub fn decrypt_data(&self, packet: &protocol::TransportData) -> Result<Vec<u8>, Error> {
         crypto::aead_decrypt(&self.receiver_key, packet.counter, &packet.payload, &[])
             .map_err(Error::Noise)
-    }
-
-    #[inline]
-    pub fn sender_index(&self) -> u32 {
-        self.sender_index
-    }
-
-    #[inline]
-    pub fn sender_key(&self) -> &[u8] {
-        &self.sender_key
-    }
-
-    #[inline]
-    pub fn receiver_index(&self) -> u32 {
-        self.receiver_index
-    }
-
-    #[inline]
-    pub fn receiver_key(&self) -> &[u8] {
-        &self.receiver_key
-    }
-
-    #[inline]
-    pub fn created_at(&self) -> Instant {
-        self.created_at
     }
 }
 
@@ -270,13 +240,6 @@ impl Sessions {
     fn deactive_previous(&mut self) {
         if let Some(previous) = self.previous.take() {
             self.deactivate(&previous);
-        }
-    }
-
-    #[inline]
-    fn deactive_current(&mut self) {
-        if let Some(current) = self.current.take() {
-            self.deactivate(&current);
         }
     }
 

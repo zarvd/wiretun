@@ -2,6 +2,7 @@ mod config;
 mod device;
 mod error;
 mod metrics;
+mod outbound;
 mod peer;
 
 pub use config::{DeviceConfig, PeerConfig};
