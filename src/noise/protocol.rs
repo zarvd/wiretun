@@ -138,7 +138,8 @@ impl TransportData {
 impl Debug for TransportData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TransportData")
-            .field("index", &self.receiver_index)
+            .field("receiver", &self.receiver_index)
+            .field("counter", &self.counter)
             .field("len(payload)", &self.payload.len())
             .finish()
     }

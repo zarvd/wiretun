@@ -12,4 +12,6 @@ pub enum Error {
     InvalidHandshakeState,
     #[error("invalid mac")]
     InvalidMac,
+    #[error("receiver index not match")]
+    ReceiverIndexNotMatch,
 }
