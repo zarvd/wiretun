@@ -1,4 +1,4 @@
-use chrono::{DateTime, NaiveDateTime, Utc};
+use std::time::SystemTime;
 
 const BASE: u64 = 0x400000000000000a;
 const WHITENER_MASK: u32 = 0x1000000 - 1;
@@ -7,9 +7,11 @@ const WHITENER_MASK: u32 = 0x1000000 - 1;
 pub struct Timestamp([u8; 12]);
 
 impl Timestamp {
-    fn stamp(t: DateTime<Utc>) -> Self {
-        let secs = BASE + t.timestamp() as u64;
-        let nanos = t.timestamp_subsec_nanos() & !WHITENER_MASK;
+    fn stamp(t: SystemTime) -> Self {
+        let d = t.duration_since(SystemTime::UNIX_EPOCH).unwrap();
+
+        let secs = BASE + d.as_secs();
+        let nanos = d.subsec_nanos() & !WHITENER_MASK;
         let b = {
             let mut dst = [0u8; 12];
             dst[..8].copy_from_slice(&secs.to_be_bytes());
@@ -20,22 +22,17 @@ impl Timestamp {
         Self(b)
     }
 
+    #[inline(always)]
     pub fn now() -> Self {
-        Self::stamp(Utc::now())
+        Self::stamp(SystemTime::now())
     }
 
-    pub fn to_string(&self) -> String {
-        let secs = u64::from_be_bytes(self.0[..8].try_into().unwrap()) - BASE;
-        let nanos = u32::from_be_bytes(self.0[8..].try_into().unwrap());
-        NaiveDateTime::from_timestamp_opt(secs as _, nanos as _)
-            .map(|d| DateTime::<Utc>::from_utc(d, Utc).to_rfc3339())
-            .unwrap_or_else(|| "invalid timestamp".to_string())
-    }
-
+    #[inline(always)]
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
+    #[inline(always)]
     pub fn to_bytes(&self) -> [u8; 12] {
         self.0
     }
@@ -69,37 +66,33 @@ impl Ord for Timestamp {
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Add;
-
-    use chrono::{Duration, NaiveDateTime, Utc};
+    use std::time::{Duration, SystemTime};
 
     use super::*;
     use crate::noise::crypto;
 
     #[test]
     fn test_timestamp() {
-        let t0 = &NaiveDateTime::from_timestamp_opt(0, 123456789)
-            .unwrap()
-            .and_local_timezone(Utc)
+        let t0 = SystemTime::UNIX_EPOCH
+            .checked_add(Duration::new(0, 123456789))
             .unwrap();
 
-        let ts0 = Timestamp::stamp(*t0);
+        let ts0 = Timestamp::stamp(t0.clone());
         assert_eq!(crypto::encode_to_hex(&ts0.0), "400000000000000a07000000");
-        assert_eq!(ts0.to_string(), "1970-01-01T00:00:00.117440512+00:00");
 
-        let ts1 = Timestamp::stamp(t0.add(Duration::nanoseconds(10)));
+        let ts1 = Timestamp::stamp(t0.checked_add(Duration::from_nanos(10)).unwrap());
         assert!(ts0 >= ts1);
 
-        let ts2 = Timestamp::stamp(t0.add(Duration::microseconds(10)));
+        let ts2 = Timestamp::stamp(t0.checked_add(Duration::from_micros(10)).unwrap());
         assert!(ts0 >= ts2);
 
-        let ts3 = Timestamp::stamp(t0.add(Duration::milliseconds(1)));
+        let ts3 = Timestamp::stamp(t0.checked_add(Duration::from_millis(1)).unwrap());
         assert!(ts0 >= ts3);
 
-        let ts4 = Timestamp::stamp(t0.add(Duration::milliseconds(10)));
+        let ts4 = Timestamp::stamp(t0.checked_add(Duration::from_millis(10)).unwrap());
         assert!(ts0 >= ts4);
 
-        let ts5 = Timestamp::stamp(t0.add(Duration::milliseconds(20)));
+        let ts5 = Timestamp::stamp(t0.checked_add(Duration::from_millis(20)).unwrap());
         assert!(ts0 < ts5);
     }
 }

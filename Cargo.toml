@@ -13,14 +13,12 @@ edition = "2021"
 [features]
 default = ["tun-native", "uapi"]
 tun-native = []
-tun-memory = []
 uapi = []
 
 [dependencies]
 libc = "0.2"
 bytes = "1.4"
 regex = "1"
-chrono = { version = "0.4" }
 rand_core = "0.6"
 anyhow = "1.0"
 thiserror = "1.0"

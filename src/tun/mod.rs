@@ -6,11 +6,6 @@ mod macos;
 #[cfg(target_os = "macos")]
 pub use macos::NativeTun;
 
-#[cfg(feature = "tun-memory")]
-mod memory;
-#[cfg(feature = "tun-memory")]
-pub use memory::MemoryTun;
-
 use async_trait::async_trait;
 
 #[async_trait]
