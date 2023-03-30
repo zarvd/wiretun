@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime};
+
+use crate::time::{AtomicInstant, AtomicTimestamp};
 
 const REKEY_AFTER_MESSAGES: u64 = 1 << 60;
 const REJECT_AFTER_MESSAGES: u64 = u64::MAX - (1 << 13);
@@ -10,76 +11,21 @@ const REKEY_ATTEMPT_TIME: Duration = Duration::from_secs(90);
 const REKEY_TIMEOUT: Duration = Duration::from_secs(5);
 pub const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(10);
 
-struct AtomicInstant {
-    epoch: Instant,
-    d: AtomicU64,
-}
-
-impl AtomicInstant {
-    #[inline]
-    pub fn new(epoch: Instant) -> Self {
-        Self {
-            epoch,
-            d: AtomicU64::new(0),
-        }
-    }
-
-    #[inline]
-    pub fn with_duration(epoch: Instant, d: Duration) -> Self {
-        Self {
-            epoch,
-            d: AtomicU64::new(d.as_millis() as _),
-        }
-    }
-
-    #[inline]
-    pub fn before(&self, other: Instant) -> bool {
-        self.to_instant() < other
-    }
-
-    #[inline]
-    pub fn after(&self, other: Instant) -> bool {
-        self.to_instant() > other
-    }
-
-    #[inline]
-    pub fn set_now(&self) {
-        self.d
-            .store(self.epoch.elapsed().as_millis() as _, Ordering::Relaxed);
-    }
-
-    #[inline]
-    pub fn set_duration(&self, d: Duration) {
-        let d = (self.epoch.elapsed() + d).as_millis();
-        self.d.store(d as _, Ordering::Relaxed);
-    }
-
-    #[inline]
-    pub fn elapsed(&self) -> Duration {
-        self.to_instant().elapsed()
-    }
-
-    #[inline]
-    fn to_instant(&self) -> Instant {
-        self.epoch + Duration::from_millis(self.d.load(Ordering::Relaxed))
-    }
-}
-
 pub(super) struct HandshakeMonitor {
     last_attempt_at: AtomicInstant,
     last_complete_at: AtomicInstant,
-    abs_last_complete_at: Mutex<SystemTime>,
+    last_complete_ts: AtomicTimestamp,
     attempt_before: AtomicInstant,
 }
 
 impl HandshakeMonitor {
     #[inline]
-    pub fn new(epoch: Instant) -> Self {
+    pub fn new() -> Self {
         Self {
-            last_attempt_at: AtomicInstant::new(epoch),
-            last_complete_at: AtomicInstant::new(epoch - REJECT_AFTER_TIME),
-            attempt_before: AtomicInstant::with_duration(epoch, REKEY_ATTEMPT_TIME),
-            abs_last_complete_at: Mutex::new(SystemTime::UNIX_EPOCH),
+            last_attempt_at: AtomicInstant::now(),
+            last_complete_at: AtomicInstant::now() - REJECT_AFTER_TIME,
+            attempt_before: AtomicInstant::now() + REKEY_ATTEMPT_TIME,
+            last_complete_ts: AtomicTimestamp::zeroed(),
         }
     }
 
@@ -92,7 +38,7 @@ impl HandshakeMonitor {
 
         if self
             .attempt_before
-            .before(self.last_complete_at.to_instant() + REKEY_AFTER_TIME)
+            .before(self.last_complete_at.to_std() + REKEY_AFTER_TIME)
         {
             self.reset_attempt();
         }
@@ -111,19 +57,19 @@ impl HandshakeMonitor {
             return Instant::now() + REKEY_TIMEOUT;
         }
 
-        self.last_attempt_at.to_instant() + REKEY_TIMEOUT
+        self.last_attempt_at.to_std() + REKEY_TIMEOUT
     }
 
     #[inline]
     pub fn completed(&self) {
         self.last_complete_at.set_now();
-        *self.abs_last_complete_at.lock().unwrap() = SystemTime::now();
+        self.last_complete_ts.set_now();
         self.reset_attempt();
     }
 
     #[inline]
     pub fn reset_attempt(&self) {
-        self.attempt_before.set_duration(REKEY_ATTEMPT_TIME);
+        self.attempt_before.add_duration(REKEY_ATTEMPT_TIME);
     }
 
     #[inline]
@@ -141,9 +87,9 @@ pub(super) struct TrafficMonitor {
 }
 
 impl TrafficMonitor {
-    pub fn new(epoch: Instant) -> Self {
+    pub fn new() -> Self {
         Self {
-            last_sent_at: AtomicInstant::new(epoch - KEEPALIVE_TIMEOUT),
+            last_sent_at: AtomicInstant::now() - KEEPALIVE_TIMEOUT,
             tx_messages: AtomicU64::new(0),
             rx_messages: AtomicU64::new(0),
             tx_bytes: AtomicU64::new(0),
@@ -158,7 +104,7 @@ impl TrafficMonitor {
 
     #[inline]
     pub fn keepalive_at(&self) -> Instant {
-        self.last_sent_at.to_instant() + KEEPALIVE_TIMEOUT
+        self.last_sent_at.to_std() + KEEPALIVE_TIMEOUT
     }
 
     #[inline]
@@ -177,10 +123,9 @@ pub(super) struct PeerMonitor {
 
 impl PeerMonitor {
     pub fn new() -> Self {
-        let epoch = Instant::now();
         Self {
-            handshake: HandshakeMonitor::new(epoch),
-            traffic: TrafficMonitor::new(epoch),
+            handshake: HandshakeMonitor::new(),
+            traffic: TrafficMonitor::new(),
         }
     }
 
@@ -201,7 +146,7 @@ impl PeerMonitor {
             rx_messages: self.traffic.rx_messages.load(Ordering::Relaxed),
             tx_bytes: self.traffic.tx_bytes.load(Ordering::Relaxed),
             rx_bytes: self.traffic.rx_bytes.load(Ordering::Relaxed),
-            last_handshake_at: *self.handshake.abs_last_complete_at.lock().unwrap(),
+            last_handshake_at: self.handshake.last_complete_ts.to_std(),
         }
     }
 }
