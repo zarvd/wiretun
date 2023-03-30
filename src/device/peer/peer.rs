@@ -50,21 +50,8 @@ where
     pub async fn handle_handshake_initiation(
         &self,
         endpoint: Endpoint,
-        payload: &[u8], // The original packet payload
         initiation: IncomingInitiation,
     ) {
-        {
-            let handshake = self.inner.handshake.write().unwrap();
-            match handshake.validate_payload(payload) {
-                Ok(()) => {}
-                Err(e) => {
-                    warn!("Invalid handshake initiation: {}", e);
-                    return;
-                }
-            }
-            // TODO: send cookie reply if rate limited
-        }
-
         self.inner
             .stage_inbound(InboundEvent::HanshakeInitiation {
                 endpoint,
@@ -78,21 +65,8 @@ where
         &self,
         endpoint: Endpoint,
         packet: protocol::HandshakeResponse,
-        payload: &[u8], // The original packet payload
         session: Session,
     ) {
-        {
-            let handshake = self.inner.handshake.write().unwrap();
-            match handshake.validate_payload(payload) {
-                Ok(()) => {}
-                Err(e) => {
-                    warn!("Invalid handshake initiation: {}", e);
-                    return;
-                }
-            }
-            // TODO: send cookie reply if rate limited
-        }
-
         self.inner
             .stage_inbound(InboundEvent::HandshakeResponse {
                 endpoint,

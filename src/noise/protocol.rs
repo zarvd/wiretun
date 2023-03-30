@@ -189,4 +189,18 @@ impl Message {
 
         Ok(message)
     }
+
+    pub fn is_handshake(payload: &[u8]) -> bool {
+        match payload[0] {
+            MESSAGE_TYPE_HANDSHAKE_INITIATION
+                if payload.len() == HANDSHAKE_INITIATION_PACKET_SIZE =>
+            {
+                true
+            }
+            MESSAGE_TYPE_HANDSHAKE_RESPONSE if payload.len() == HANDSHAKE_RESPONSE_PACKET_SIZE => {
+                true
+            }
+            _ => false,
+        }
+    }
 }

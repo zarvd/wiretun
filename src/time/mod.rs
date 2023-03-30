@@ -1,4 +1,4 @@
-use std::ops::{Add, Sub};
+use std::ops::Add;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -108,12 +108,6 @@ impl AtomicInstant {
     }
 
     #[inline(always)]
-    pub fn sub_duration(&self, d: Duration) {
-        let d = (self.epoch.elapsed() - d).as_millis();
-        self.d.store(d as _, Ordering::Relaxed);
-    }
-
-    #[inline(always)]
     pub fn elapsed(&self) -> Duration {
         self.to_std().elapsed()
     }
@@ -141,15 +135,6 @@ impl Add<Duration> for AtomicInstant {
 
     fn add(self, rhs: Duration) -> Self::Output {
         self.add_duration(rhs);
-        self
-    }
-}
-
-impl Sub<Duration> for AtomicInstant {
-    type Output = Self;
-
-    fn sub(self, rhs: Duration) -> Self::Output {
-        self.sub_duration(rhs);
         self
     }
 }

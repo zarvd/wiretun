@@ -10,10 +10,10 @@ use tracing::{debug, error, warn};
 
 use super::outbound::{Endpoint, Listener};
 use super::peer::Peers;
-use super::{DeviceConfig, Error};
-use crate::device::DeviceMetrics;
+use super::rate_limiter::RateLimiter;
+use super::{DeviceConfig, DeviceMetrics, Error};
 use crate::noise::crypto::LocalStaticSecret;
-use crate::noise::handshake::IncomingInitiation;
+use crate::noise::handshake::{Cookie, IncomingInitiation};
 use crate::noise::protocol::Message;
 use crate::Tun;
 
@@ -27,6 +27,8 @@ where
     secret: LocalStaticSecret,
     peers: Peers<T>,
     cfg: Mutex<DeviceConfig>,
+    rate_limiter: RateLimiter,
+    cookie: Cookie,
 }
 
 impl<T> Inner<T>
@@ -93,6 +95,8 @@ where
             peers.insert(cfg.public_key, &cfg.allowed_ips, endpoint);
         }
 
+        let cookie = Cookie::new(&secret);
+        let rate_limiter = RateLimiter::new(1_000);
         let inner = {
             let cfg = Mutex::new(cfg);
             Arc::new(Inner {
@@ -100,6 +104,8 @@ where
                 secret,
                 peers,
                 cfg,
+                cookie,
+                rate_limiter,
             })
         };
         let handles = vec![
@@ -219,6 +225,25 @@ async fn tick_inbound<T>(inner: Arc<Inner<T>>, endpoint: Endpoint, payload: Vec<
 where
     T: Tun + 'static,
 {
+    if Message::is_handshake(&payload) {
+        if !inner.cookie.validate_mac1(&payload) {
+            debug!("invalid mac1");
+            return;
+        }
+
+        if !inner.rate_limiter.fetch_token() {
+            debug!("rate limited");
+            if !inner.cookie.validate_mac2(&payload) {
+                debug!("invalid mac2");
+                return;
+            }
+            debug!("try to send cookie reply");
+            let reply = inner.cookie.generate_cookie_reply(&payload, endpoint.dst());
+            endpoint.send(&reply).await.unwrap();
+            return;
+        }
+    }
+
     match Message::parse(&payload) {
         Ok(Message::HandshakeInitiation(p)) => {
             let initiation =
@@ -227,8 +252,7 @@ where
                 .peers
                 .by_static_public_key(initiation.static_public_key.as_bytes())
             {
-                peer.handle_handshake_initiation(endpoint, &payload, initiation)
-                    .await;
+                peer.handle_handshake_initiation(endpoint, initiation).await;
             }
         }
         Ok(msg) => {
@@ -241,8 +265,7 @@ where
             if let Some((session, peer)) = inner.peers.by_index(receiver_index) {
                 match msg {
                     Message::HandshakeResponse(p) => {
-                        peer.handle_handshake_response(endpoint, p, &payload, session)
-                            .await;
+                        peer.handle_handshake_response(endpoint, p, session).await;
                     }
                     Message::CookieReply(p) => {
                         peer.handle_cookie_reply(endpoint, p, session).await;

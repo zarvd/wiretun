@@ -23,7 +23,7 @@ impl HandshakeMonitor {
     pub fn new() -> Self {
         Self {
             last_attempt_at: AtomicInstant::now(),
-            last_complete_at: AtomicInstant::now() - REJECT_AFTER_TIME,
+            last_complete_at: AtomicInstant::from_std(Instant::now() - REJECT_AFTER_TIME),
             attempt_before: AtomicInstant::now() + REKEY_ATTEMPT_TIME,
             last_complete_ts: AtomicTimestamp::zeroed(),
         }
@@ -89,7 +89,7 @@ pub(super) struct TrafficMonitor {
 impl TrafficMonitor {
     pub fn new() -> Self {
         Self {
-            last_sent_at: AtomicInstant::now() - KEEPALIVE_TIMEOUT,
+            last_sent_at: AtomicInstant::from_std(Instant::now() - KEEPALIVE_TIMEOUT),
             tx_messages: AtomicU64::new(0),
             rx_messages: AtomicU64::new(0),
             tx_bytes: AtomicU64::new(0),
