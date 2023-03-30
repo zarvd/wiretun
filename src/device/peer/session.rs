@@ -4,8 +4,10 @@ use std::fmt::{Debug, Formatter};
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
+use tracing::{debug, error};
 
 use crate::device::Error;
+use crate::noise;
 use crate::noise::crypto::PeerStaticSecret;
 use crate::noise::{crypto, protocol};
 
@@ -69,6 +71,11 @@ impl Session {
 
     #[inline]
     pub fn decrypt_data(&self, packet: &protocol::TransportData) -> Result<Vec<u8>, Error> {
+        if self.sender_index != packet.receiver_index {
+            return Err(Error::Noise(noise::Error::ReceiverIndexNotMatch));
+        }
+
+        debug!("try to decrypt data: {:?}", packet);
         crypto::aead_decrypt(&self.receiver_key, packet.counter, &packet.payload, &[])
             .map_err(Error::Noise)
     }

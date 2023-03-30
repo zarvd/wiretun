@@ -66,7 +66,7 @@ impl Handshake {
         let (state, payload) =
             OutgoingResponse::new(initiation, self.local_index, &self.secret, &mut self.cookie);
         let (sender_index, receiver_index) = (self.local_index, initiation.index);
-        let (receiver_key, sender_key) = kdf2(&[], &state.chaining_key);
+        let (receiver_key, sender_key) = kdf2(&state.chaining_key, &[]);
         let sess = Session::new(sender_index, sender_key, receiver_index, receiver_key);
 
         Ok((sess, payload))
@@ -77,7 +77,7 @@ impl Handshake {
             State::Initiation(initiation) => {
                 let state = IncomingResponse::parse(initiation, &self.secret, packet)?;
                 let (sender_index, receiver_index) = (initiation.index, state.index);
-                let (sender_key, receiver_key) = kdf2(&[], &state.chaining_key);
+                let (sender_key, receiver_key) = kdf2(&state.chaining_key, &[]);
                 let sess = Session::new(sender_index, sender_key, receiver_index, receiver_key);
 
                 Ok(sess)
