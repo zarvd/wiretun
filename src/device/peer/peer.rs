@@ -6,7 +6,7 @@ use std::sync::{
 
 use tokio::sync::mpsc;
 use tokio::time;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, info, warn};
 
 use super::session::{Session, SessionManager, Sessions};
 use super::{
@@ -299,9 +299,6 @@ where
             }
             event = rx.recv() => {
                 if let Some(OutboundEvent::Data(data)) = event {
-                    if data.is_empty() {
-                        debug!("outbound loop: sending keepalive");
-                    }
                     tick_outbound(inner.clone(), data).await;
                 } else {
                     break;
@@ -366,7 +363,6 @@ where
     debug!("exiting inbound loop for peer {inner}");
 }
 
-#[instrument]
 async fn handle_handshake_inititation<T>(
     inner: Arc<Inner<T>>,
     endpoint: Endpoint,
@@ -391,7 +387,6 @@ async fn handle_handshake_inititation<T>(
     }
 }
 
-#[instrument]
 async fn handle_handshake_response<T>(
     inner: Arc<Inner<T>>,
     endpoint: Endpoint,
@@ -419,18 +414,16 @@ async fn handle_handshake_response<T>(
     }
 }
 
-#[instrument]
 async fn handle_cookie_reply<T>(
-    inner: Arc<Inner<T>>,
-    endpoint: Endpoint,
-    packet: CookieReply,
-    session: Session,
+    _inner: Arc<Inner<T>>,
+    _endpoint: Endpoint,
+    _packet: CookieReply,
+    _session: Session,
 ) where
     T: Tun + 'static,
 {
 }
 
-#[instrument]
 async fn handle_transport_data<T>(
     inner: Arc<Inner<T>>,
     endpoint: Endpoint,
@@ -456,10 +449,10 @@ async fn handle_transport_data<T>(
         Ok(data) => {
             if data.is_empty() {
                 // keepalive
-                debug!("received keepalive from peer");
                 return;
             }
 
+            debug!("recv data from peer and try to send it to TUN");
             inner.tun.send(&data).await.unwrap();
             session.aceept(packet.counter);
         }

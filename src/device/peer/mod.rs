@@ -1,9 +1,11 @@
+mod cidr;
 pub mod handshake;
 mod monitor;
 mod peer;
 mod peers;
 mod session;
 
+pub use cidr::{Cidr, ParseCidrError};
 pub use monitor::PeerMetrics;
 pub(crate) use peer::Peer;
 pub(crate) use peers::Peers;

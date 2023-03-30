@@ -4,7 +4,7 @@ use base64::engine::general_purpose::STANDARD as base64Encoding;
 use base64::Engine;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use wiretun::{uapi, Device, DeviceConfig, PeerConfig};
+use wiretun::{uapi, Cidr, Device, DeviceConfig, PeerConfig};
 
 fn decode_base64(s: &str) -> Vec<u8> {
     base64Encoding.decode(s).unwrap()
@@ -32,12 +32,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .init();
 
     let cfg = DeviceConfig::default()
+        .listen_port(40001)
         .private_key(local_private_key())
         .peer(
             PeerConfig::default()
                 .public_key(peer_public_key())
-                .allowed_ip("10.0.0.1".parse()?, 32)
-                .allowed_ip("10.0.0.2".parse()?, 32),
+                .endpoint("0.0.0.0:40002".parse()?)
+                .allowed_ip("10.0.0.2".parse::<Cidr>()?),
         );
     let device = Device::native("utun", cfg).await?;
 

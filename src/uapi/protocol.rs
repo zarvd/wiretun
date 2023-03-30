@@ -1,10 +1,10 @@
-use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::time::SystemTime;
 
 use bytes::{BufMut, Bytes, BytesMut};
 
 use crate::noise::crypto;
+use crate::Cidr;
 
 pub enum Request {
     Get,
@@ -26,7 +26,7 @@ pub struct DeviceInfo {
 pub struct PeerInfo {
     pub public_key: [u8; 32],
     pub psk: [u8; 32],
-    pub allowed_ips: Vec<(IpAddr, u8)>,
+    pub allowed_ips: Vec<Cidr>,
     pub endpoint: Option<SocketAddr>,
     pub last_handshake_at: SystemTime,
     pub tx_bytes: u64,
@@ -49,8 +49,8 @@ impl Into<Bytes> for DeviceInfo {
         for peer in self.peers {
             buf.encode_and_put("public_key", &peer.public_key);
             buf.encode_and_put("preshared_key", &peer.psk);
-            for (ip, mask) in peer.allowed_ips {
-                buf.put("allowed_ip", &format!("{}/{}", ip, mask));
+            for ip in peer.allowed_ips {
+                buf.put("allowed_ip", &ip.to_string());
             }
             if let Some(endpoint) = peer.endpoint {
                 buf.put("endpoint", &endpoint.to_string());

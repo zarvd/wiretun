@@ -69,26 +69,4 @@ mod tests {
         assert_eq!(resp_out.chaining_key, resp_in.chaining_key);
         assert_eq!(resp_out.hash, resp_in.hash);
     }
-
-    // #[test]
-    // fn handshake() {
-    //     let (p1_key, p2_key) = gen_2_static_key();
-    //     let (p1_i, p2_i) = (42, 88);
-    //
-    //     let mut p1 = Handshake::new(p1_key);
-    //     let mut p2 = Handshake::new(p2_key);
-    //     p1.local_index = p1_i;
-    //     p2.local_index = p2_i;
-    //
-    //     let payload = p1.initiate();
-    //     let (p2_sess, payload) = p2.respond(&payload).unwrap();
-    //     let p1_sess = p1.finalize(&payload).unwrap();
-    //
-    //     assert_eq!(p1_sess.sender_nonce(), p1_i);
-    //     assert_eq!(p1_sess.sender_nonce(), p2_sess.receiver_nonce());
-    //     assert_eq!(p2_sess.sender_nonce(), p2_i);
-    //     assert_eq!(p2_sess.sender_nonce(), p1_sess.receiver_nonce());
-    //     assert_eq!(p1_sess.sender_key(), p2_sess.receiver_key());
-    //     assert_eq!(p2_sess.sender_key(), p1_sess.receiver_key());
-    // }
 }
