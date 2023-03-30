@@ -7,7 +7,7 @@ pub const IDENTIFIER: [u8; 34] = *b"WireGuard v1 zx2c4 Jason@zx2c4.com";
 pub const LABEL_MAC1: [u8; 8] = *b"mac1----";
 pub const LABEL_COOKIE: [u8; 8] = *b"cookie--";
 
-pub use cookie::Cookie;
+pub use cookie::{Cookie, MacGenerator};
 pub use initiation::{IncomingInitiation, OutgoingInitiation};
 pub use response::{IncomingResponse, OutgoingResponse};
 
@@ -36,7 +36,7 @@ mod tests {
     fn handshake_initiation() {
         let (p1_key, p2_key) = gen_2_static_key();
         let (p1_i, _p2_i) = (42, 88);
-        let mut p1_cookie = Cookie::new(&p2_key);
+        let mut p1_cookie = MacGenerator::new(&p2_key);
 
         let (init_out, payload) = OutgoingInitiation::new(p1_i, &p1_key, &mut p1_cookie);
         let packet = HandshakeInitiation::try_from(payload.as_slice()).unwrap();
@@ -51,8 +51,8 @@ mod tests {
     fn handshake_response() {
         let (p1_key, p2_key) = gen_2_static_key();
         let (p1_i, p2_i) = (42, 88);
-        let mut p1_cookie = Cookie::new(&p2_key);
-        let mut p2_cookie = Cookie::new(&p1_key);
+        let mut p1_cookie = MacGenerator::new(&p2_key);
+        let mut p2_cookie = MacGenerator::new(&p1_key);
 
         let (init_out, payload) = OutgoingInitiation::new(p1_i, &p1_key, &mut p1_cookie);
         let packet = HandshakeInitiation::try_from(payload.as_slice()).unwrap();

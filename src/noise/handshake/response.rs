@@ -1,6 +1,6 @@
 use bytes::{BufMut, BytesMut};
 
-use super::{Cookie, IncomingInitiation, OutgoingInitiation};
+use super::{IncomingInitiation, MacGenerator, OutgoingInitiation};
 use crate::noise::protocol::HandshakeResponse;
 use crate::noise::{
     crypto::{
@@ -24,7 +24,7 @@ impl OutgoingResponse {
         initiation: &IncomingInitiation,
         local_index: u32,
         secret: &PeerStaticSecret,
-        cookie: &mut Cookie,
+        macs: &mut MacGenerator,
     ) -> (Self, Vec<u8>) {
         let mut buf = BytesMut::with_capacity(PACKET_SIZE);
 
@@ -52,8 +52,8 @@ impl OutgoingResponse {
         let h = hash(&h, &empty);
 
         // mac1 and mac2
-        buf.put_slice(&cookie.generate_mac1(&buf)); // 16 bytes
-        buf.put_slice(&cookie.generate_mac2(&buf)); // 16 bytes
+        buf.put_slice(&macs.generate_mac1(&buf)); // 16 bytes
+        buf.put_slice(&macs.generate_mac2(&buf)); // 16 bytes
 
         let payload = buf.freeze().to_vec();
         (

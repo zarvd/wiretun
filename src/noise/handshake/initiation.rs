@@ -1,6 +1,6 @@
 use bytes::{BufMut, BytesMut};
 
-use super::{Cookie, CONSTRUCTION, IDENTIFIER};
+use super::{MacGenerator, CONSTRUCTION, IDENTIFIER};
 use crate::noise::crypto::{EphermealPrivateKey, LocalStaticSecret, PeerStaticSecret, PublicKey};
 use crate::noise::protocol::HandshakeInitiation;
 use crate::noise::{
@@ -23,7 +23,7 @@ impl OutgoingInitiation {
     pub fn new(
         sender_index: u32,
         secret: &PeerStaticSecret,
-        cookie: &mut Cookie,
+        macs: &mut MacGenerator,
     ) -> (Self, Vec<u8>) {
         let mut buf = BytesMut::with_capacity(PACKET_SIZE);
 
@@ -56,8 +56,8 @@ impl OutgoingInitiation {
         let h = hash(&h, &timestamp);
 
         // mac1 and mac2
-        buf.put_slice(&cookie.generate_mac1(&buf)); // 16 bytes
-        buf.put_slice(&cookie.generate_mac2(&buf)); // 16 bytes
+        buf.put_slice(&macs.generate_mac1(&buf)); // 16 bytes
+        buf.put_slice(&macs.generate_mac2(&buf)); // 16 bytes
 
         let payload = buf.freeze().to_vec();
         (

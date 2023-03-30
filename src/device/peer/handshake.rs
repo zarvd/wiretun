@@ -5,7 +5,7 @@ use crate::noise::protocol::HandshakeResponse;
 use crate::noise::{
     crypto::{kdf2, PeerStaticSecret},
     handshake::{
-        Cookie, IncomingInitiation, IncomingResponse, OutgoingInitiation, OutgoingResponse,
+        IncomingInitiation, IncomingResponse, MacGenerator, OutgoingInitiation, OutgoingResponse,
     },
     Error,
 };
@@ -19,15 +19,15 @@ pub(super) struct Handshake {
     state: State,
     secret: PeerStaticSecret,
     local_index: u32,
-    cookie: Cookie,
+    macs: MacGenerator,
 }
 
 impl Handshake {
     pub fn new(secret: PeerStaticSecret) -> Self {
-        let cookie = Cookie::new(&secret);
+        let cookie = MacGenerator::new(&secret);
         Self {
             secret,
-            cookie,
+            macs: cookie,
             state: State::Uninit,
             local_index: OsRng.next_u32(),
         }
@@ -39,18 +39,10 @@ impl Handshake {
         self.local_index
     }
 
-    // validate handshake packet:
-    // - HandshakeInitiation
-    // - HandshakeResponse
-    pub fn validate_payload(&self, payload: &[u8]) -> Result<(), Error> {
-        self.cookie.validate_mac(payload)
-    }
-
     // Prepare HandshakeInitiation packet.
     pub fn initiate(&mut self) -> (Session, Vec<u8>) {
         let sender_index = self.tick_local_index();
-        let (state, payload) =
-            OutgoingInitiation::new(sender_index, &self.secret, &mut self.cookie);
+        let (state, payload) = OutgoingInitiation::new(sender_index, &self.secret, &mut self.macs);
         let pre = Session::new(sender_index, [0u8; 32], 0, [0u8; 32]);
         self.state = State::Initiation(state);
 
@@ -64,7 +56,7 @@ impl Handshake {
     ) -> Result<(Session, Vec<u8>), Error> {
         self.tick_local_index();
         let (state, payload) =
-            OutgoingResponse::new(initiation, self.local_index, &self.secret, &mut self.cookie);
+            OutgoingResponse::new(initiation, self.local_index, &self.secret, &mut self.macs);
         let (sender_index, receiver_index) = (self.local_index, initiation.index);
         let (receiver_key, sender_key) = kdf2(&state.chaining_key, &[]);
         let sess = Session::new(sender_index, sender_key, receiver_index, receiver_key);
