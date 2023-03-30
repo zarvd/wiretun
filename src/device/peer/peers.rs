@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::RwLock;
 
+use super::cidr::{Cidr, CidrTable};
 use super::session::{Session, SessionManager};
 use super::{Peer, PeerMetrics};
 use crate::device::outbound::Endpoint;
@@ -16,7 +17,7 @@ where
     secret: LocalStaticSecret,
     session_mgr: SessionManager,
     by_static_public_key: RwLock<HashMap<[u8; 32], Peer<T>>>,
-    by_allowed_ips: RwLock<HashMap<IpAddr, Peer<T>>>,
+    by_allowed_ips: RwLock<CidrTable<Peer<T>>>,
 }
 
 impl<T> Peers<T>
@@ -28,7 +29,7 @@ where
             tun,
             secret,
             by_static_public_key: RwLock::new(HashMap::new()),
-            by_allowed_ips: RwLock::new(HashMap::new()),
+            by_allowed_ips: RwLock::new(CidrTable::new()),
             session_mgr: SessionManager::new(),
         }
     }
@@ -36,7 +37,7 @@ where
     pub fn insert(
         &self,
         public_key: [u8; 32],
-        allowed_ips: &[(IpAddr, u8)],
+        allowed_ips: &[Cidr],
         endpoint: Option<Endpoint>,
     ) -> Peer<T> {
         let mut by_static_public_key = self.by_static_public_key.write().unwrap();
@@ -50,9 +51,8 @@ where
         });
 
         let mut by_allowed_ips = self.by_allowed_ips.write().unwrap();
-        for (ip, _mask) in allowed_ips {
-            // FIXME: should store the mask as well
-            by_allowed_ips.insert(*ip, peer.clone());
+        for &cidr in allowed_ips {
+            by_allowed_ips.insert(cidr, peer.clone());
         }
 
         peer.clone()
@@ -67,7 +67,7 @@ where
     /// Returns the peer that matches the given IP address.
     pub fn by_allow_ip(&self, ip: IpAddr) -> Option<Peer<T>> {
         let index = self.by_allowed_ips.read().unwrap();
-        index.get(&ip).cloned()
+        index.get_by_ip(ip).cloned()
     }
 
     /// Returns the peer that matches the index of the session.

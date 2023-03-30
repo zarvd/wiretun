@@ -1,5 +1,7 @@
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::time::Duration;
+
+use super::Cidr;
 
 #[derive(Default, Clone)]
 pub struct DeviceConfig {
@@ -11,7 +13,7 @@ pub struct DeviceConfig {
 #[derive(Default, Clone)]
 pub struct PeerConfig {
     pub public_key: [u8; 32],
-    pub allowed_ips: Vec<(IpAddr, u8)>,
+    pub allowed_ips: Vec<Cidr>,
     pub endpoint: Option<SocketAddr>,
     pub preshared_key: Option<[u8; 32]>,
     pub persistent_keepalive: Option<u16>,
@@ -51,14 +53,14 @@ impl PeerConfig {
     }
 
     #[inline(always)]
-    pub fn allowed_ips(mut self, ips: Vec<(IpAddr, u8)>) -> Self {
-        self.allowed_ips = ips;
+    pub fn allowed_ips<I: Into<Cidr> + Clone>(mut self, ips: &[I]) -> Self {
+        self.allowed_ips = ips.into_iter().map(|i| i.clone().into()).collect();
         self
     }
 
     #[inline(always)]
-    pub fn allowed_ip(mut self, ip: IpAddr, mask: u8) -> Self {
-        self.allowed_ips.push((ip, mask));
+    pub fn allowed_ip<I: Into<Cidr>>(mut self, ip: I) -> Self {
+        self.allowed_ips.push(ip.into());
         self
     }
 

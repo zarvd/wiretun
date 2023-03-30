@@ -135,7 +135,17 @@ impl Tun for NativeTun {
     }
 
     async fn send(&self, buf: &[u8]) -> Result<(), Error> {
-        // FIXME
+        let buf = {
+            let mut m = vec![0u8; 4 + buf.len()];
+            m[3] = match buf[0] >> 4 {
+                4 => 0x2,
+                6 => 0x1e,
+                _ => return Err(Error::InvalidIpPacket),
+            };
+            m[4..].copy_from_slice(buf);
+            m
+        };
+
         let mut guard = self.fd.writable().await?;
         let ret = guard.try_io(|inner| unsafe {
             let ret = libc::write(inner.as_raw_fd(), buf.as_ptr() as _, buf.len());

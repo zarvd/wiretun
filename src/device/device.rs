@@ -311,7 +311,10 @@ where
             let peer = inner.peers.by_allow_ip(dst);
 
             if let Some(peer) = peer {
+                debug!("sending packet[{}] to {dst}", buf.len());
                 peer.stage_outbound(buf).await
+            } else {
+                warn!("no peer found for {dst}");
             }
         }
         Err(e) => {
