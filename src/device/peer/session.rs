@@ -4,7 +4,7 @@ use std::fmt::{Debug, Formatter};
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
-use tracing::{debug, error};
+use tracing::debug;
 
 use crate::device::Error;
 use crate::noise;
