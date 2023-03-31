@@ -1,4 +1,3 @@
-use super::Error;
 use std::fmt::{Debug, Formatter};
 
 const MESSAGE_TYPE_HANDSHAKE_INITIATION: u8 = 1u8;
@@ -10,6 +9,8 @@ const HANDSHAKE_RESPONSE_PACKET_SIZE: usize = 92;
 const COOKIE_REPLY_PACKET_SIZE: usize = 64;
 
 const MIN_PACKET_SIZE: usize = 4; // TODO
+
+use super::Error;
 
 pub struct HandshakeInitiation {
     pub sender_index: u32,

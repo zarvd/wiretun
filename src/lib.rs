@@ -1,32 +1,43 @@
 #![allow(dead_code)]
 
-//! A WireGuard implementation in Rust.
+//! # WireTun
 //!
-//! WireTun is a WireGuard implementation in Rust. It is a library that can be used to build
-//! WireGuard clients and servers.
+//! WireTun is a user-space WireGuard implementation in Rust.
 //!
-//! # Features
-//! - support [`tokio`] runtime
+//! ## What is WireGuard?
+//!
+//! WireGuard is a modern, high-performance VPN protocol that is designed to be simple to use and easy to configure.
+//! It is often used to create secure private networks and build reliable, low-latency connections.
+//!
+//! ## Features
+//!
+//! - Implementation of the [WireGuard](https://www.wireguard.com/) protocol in Rust.
+//! - Asynchronous I/O using [Tokio](https://tokio.rs/).
 //!
 //! # Examples
-//! ```toml
-//! [dependencies]
-//! wiretun = { version = "0.1", features = ["tun-native", "uapi"] }
-//! ```
+//!
+//! ```no_run
+//! use wiretun::{Cidr, Device, DeviceConfig, PeerConfig, uapi};
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!    let cfg = DeviceConfig::default()
+//!        .listen_port(40001);
+//!    let device = Device::native("utun88", cfg).await?;
+//!    uapi::bind_and_handle(device.handle()).await?;
+//!    Ok(())
+//! }
 
 mod device;
 mod noise;
 mod tun;
 
 pub use device::{Cidr, Device, DeviceConfig, DeviceHandle, ParseCidrError, PeerConfig};
-pub use tun::Error as TunError;
-pub use tun::Tun;
+pub use tun::{Error as TunError, Tun};
 
-#[cfg(feature = "tun-native")]
+#[cfg(feature = "native")]
+/// Native tun implementation.
 pub use tun::NativeTun;
-
-#[cfg(feature = "tun-memory")]
-pub use tun::MemoryTun;
 
 #[cfg(feature = "uapi")]
 pub mod uapi;

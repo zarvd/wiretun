@@ -177,7 +177,7 @@ pub fn aead_decrypt(key: &[u8], counter: u64, msg: &[u8], aad: &[u8]) -> Result<
     chacha20poly1305::ChaCha20Poly1305::new_from_slice(key)
         .map_err(|_| Error::InvalidKeyLength)?
         .decrypt(Nonce::from_slice(&nonce), Payload { msg, aad })
-        .map_err(Error::Encryption)
+        .map_err(|_| Error::Decryption)
 }
 
 #[inline]
@@ -197,7 +197,7 @@ pub fn xaead_decrypt(key: &[u8], nonce: &[u8], msg: &[u8], aad: &[u8]) -> Result
     chacha20poly1305::XChaCha20Poly1305::new_from_slice(key)
         .map_err(|_| Error::InvalidKeyLength)?
         .decrypt(XNonce::from_slice(nonce), Payload { msg, aad })
-        .map_err(Error::Encryption)
+        .map_err(|_| Error::Decryption)
 }
 
 #[cfg(test)]

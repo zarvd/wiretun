@@ -102,7 +102,7 @@ impl IncomingResponse {
         let h = hash(&h, &t);
         let empty = aead_decrypt(&k, 0, &packet.empty, &h)?;
         if !empty.is_empty() {
-            return Err(Error::InvalidKeyLength); // FIXME
+            return Err(Error::Decryption);
         }
         let h = hash(&h, &packet.empty);
 
