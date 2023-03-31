@@ -77,7 +77,7 @@ mod tests {
             .checked_add(Duration::new(0, 123456789))
             .unwrap();
 
-        let ts0 = Timestamp::stamp(t0.clone());
+        let ts0 = Timestamp::stamp(t0);
         assert_eq!(crypto::encode_to_hex(&ts0.0), "400000000000000a07000000");
 
         let ts1 = Timestamp::stamp(t0.checked_add(Duration::from_nanos(10)).unwrap());

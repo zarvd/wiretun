@@ -58,7 +58,7 @@ where
                 endpoint,
             );
             PeerEntry {
-                peer: p.clone(),
+                peer: p,
                 allowed_ips: allowed_ips.clone().into_iter().collect(),
             }
         });

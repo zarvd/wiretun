@@ -146,14 +146,14 @@ mod tests {
     #[test]
     fn test_atomic_timestamp() {
         let now = SystemTime::now();
-        let ts = AtomicTimestamp::from_std(now.clone());
+        let ts = AtomicTimestamp::from_std(now);
         assert_eq!(ts.to_std(), now);
     }
 
     #[test]
     fn test_atomic_instant() {
         let now = Instant::now();
-        let instant = AtomicInstant::from_std(now.clone());
+        let instant = AtomicInstant::from_std(now);
         assert_eq!(instant.to_std(), now);
 
         let now = now + Duration::from_secs(1);
