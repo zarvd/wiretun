@@ -21,7 +21,7 @@ use session::Session;
 #[derive(Debug)]
 enum OutboundEvent {
     Data(Vec<u8>),
-    EOF,
+    Eof,
 }
 
 #[derive(Debug)]
@@ -45,7 +45,7 @@ enum InboundEvent {
         packet: protocol::TransportData,
         session: Session,
     },
-    EOF,
+    Eof,
 }
 
 type InboundTx = mpsc::Sender<InboundEvent>;

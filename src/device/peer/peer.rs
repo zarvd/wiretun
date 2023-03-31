@@ -131,8 +131,8 @@ where
         self.inner.running.store(false, atomic::Ordering::SeqCst);
         let inner = self.inner.clone();
         tokio::spawn(async move {
-            let _ = inner.inbound.send(InboundEvent::EOF).await;
-            let _ = inner.outbound.send(OutboundEvent::EOF).await;
+            let _ = inner.inbound.send(InboundEvent::Eof).await;
+            let _ = inner.outbound.send(OutboundEvent::Eof).await;
         });
     }
 }
@@ -283,7 +283,7 @@ where
                     Some(OutboundEvent::Data(data)) => {
                         tick_outbound(inner.clone(), data).await;
                     }
-                    Some(OutboundEvent::EOF) => break,
+                    Some(OutboundEvent::Eof) => break,
                     None => break,
                 }
             }
@@ -340,7 +340,7 @@ where
                 packet,
                 session,
             } => handle_transport_data(inner.clone(), endpoint, packet, session).await,
-            InboundEvent::EOF => break,
+            InboundEvent::Eof => break,
         }
     }
     debug!("exiting inbound loop for peer {inner}");

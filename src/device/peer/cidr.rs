@@ -1,3 +1,4 @@
+use std::hash::{Hash, Hasher};
 use std::net::IpAddr;
 use std::str::FromStr;
 
@@ -29,7 +30,7 @@ fn max_mask_for_ip(ip: &IpAddr) -> u8 {
 ///     assert_eq!(cidr.to_string(), "10.10.0.0/16");  // truncated
 /// }
 /// ```
-#[derive(Clone, Copy, Debug, Hash)]
+#[derive(Clone, Copy, Debug)]
 pub struct Cidr(IpNetwork);
 
 impl Cidr {
@@ -56,6 +57,12 @@ impl From<IpAddr> for Cidr {
 impl PartialEq for Cidr {
     fn eq(&self, other: &Self) -> bool {
         self.0 == other.0
+    }
+}
+
+impl Hash for Cidr {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
     }
 }
 

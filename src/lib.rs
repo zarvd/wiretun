@@ -1,4 +1,5 @@
-#![allow(dead_code)]
+#![allow(dead_code)] // FIXME: should be removed
+#![allow(clippy::module_inception, clippy::needless_doctest_main)]
 
 //! # WireTun
 //!

@@ -8,6 +8,8 @@
 
 This library provides a cross-platform, asynchronous (with [Tokio](https://tokio.rs/)) WireGuard implementation.
 
+**WARNING**: This library is still in early development and is not ready for production use.
+
 ```toml
 [dependencies]
 wiretun = { version = "0.1", features = ["uapi"] }

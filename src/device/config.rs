@@ -70,7 +70,7 @@ impl PeerConfig {
 
     #[inline(always)]
     pub fn allowed_ips<I: Into<Cidr> + Clone>(mut self, ips: &[I]) -> Self {
-        self.allowed_ips = ips.into_iter().map(|i| i.clone().into()).collect();
+        self.allowed_ips = ips.iter().map(|i| i.clone().into()).collect();
         self
     }
 

@@ -256,7 +256,7 @@ where
             endpoint.map(|addr| self.inner.endpoint_for(addr)),
         );
         cfg.peers.push(PeerConfig {
-            public_key: public_key,
+            public_key,
             allowed_ips,
             endpoint,
             preshared_key: None,
@@ -275,14 +275,12 @@ where
     /// Updates the endpoint of a peer.
     pub fn update_peer_endpoint(&self, public_key: &[u8; 32], addr: SocketAddr) {
         let mut cfg = self.inner.cfg.lock().unwrap();
-        self.inner
-            .peers
-            .get_by_key(public_key)
-            .map(|p| p.update_endpoint(self.inner.endpoint_for(addr)));
-        cfg.peers
-            .iter_mut()
-            .find(|p| p.public_key == *public_key)
-            .map(|p| p.endpoint = Some(addr));
+        if let Some(p) = self.inner.peers.get_by_key(public_key) {
+            p.update_endpoint(self.inner.endpoint_for(addr))
+        }
+        if let Some(p) = cfg.peers.iter_mut().find(|p| p.public_key == *public_key) {
+            p.endpoint = Some(addr);
+        }
     }
 
     /// Updates the allowed IPs of a peer.
@@ -291,10 +289,9 @@ where
         self.inner
             .peers
             .update_allowed_ips_by_key(public_key, allowed_ips.clone());
-        cfg.peers
-            .iter_mut()
-            .find(|p| p.public_key == *public_key)
-            .map(|p| p.allowed_ips = allowed_ips);
+        if let Some(p) = cfg.peers.iter_mut().find(|p| p.public_key == *public_key) {
+            p.allowed_ips = allowed_ips;
+        }
     }
 
     /// Removes all peers from the device.
