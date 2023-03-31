@@ -34,7 +34,7 @@ More examples can be found in the [examples](examples) directory.
 
 ## Minimum supported Rust version (MSRV)
 
-1.60
+1.66.1
 
 ## License
 
