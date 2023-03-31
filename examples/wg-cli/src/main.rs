@@ -33,13 +33,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    info!("Starting");
+
     let cfg = DeviceConfig::default()
-        .listen_port(40001)
+        .listen_port(9999)
         .private_key(local_private_key())
         .peer(
             PeerConfig::default()
                 .public_key(peer_public_key())
-                .endpoint("0.0.0.0:51871".parse()?)
+                // .endpoint("0.0.0.0:51871".parse()?)
                 // .endpoint("20.187.108.253:50005".parse()?)
                 .allowed_ip("10.0.0.2".parse::<Cidr>()?),
         );

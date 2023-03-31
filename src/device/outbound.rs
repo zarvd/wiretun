@@ -1,14 +1,15 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::io;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use futures::Stream;
+use socket2::{Domain, Protocol, Type};
 use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 #[derive(Clone)]
 pub(super) struct Listener {
@@ -18,15 +19,33 @@ pub(super) struct Listener {
 impl Listener {
     pub async fn bind(port: u16) -> Result<(Self, Self), io::Error> {
         loop {
-            let ipv4 = UdpSocket::bind(SocketAddr::new("0.0.0.0".parse().unwrap(), port)).await?;
-            let ipv6 = match UdpSocket::bind(SocketAddr::new(
-                "::".parse().unwrap(),
-                ipv4.local_addr()?.port(),
-            ))
-            .await
-            {
+            let ipv4 = {
+                let socket = socket2::Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+                socket.set_nonblocking(true)?;
+                socket.set_reuse_address(true)?;
+                socket.bind(&SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port).into())?;
+                UdpSocket::from_std(std::net::UdpSocket::from(socket))?
+            };
+            info!("Listening on {}", ipv4.local_addr()?);
+
+            let ipv6_socket = {
+                let socket = socket2::Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?;
+                socket.set_only_v6(true)?;
+                socket.set_nonblocking(true)?;
+                socket.set_reuse_address(true)?;
+                socket.bind(
+                    &SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, ipv4.local_addr()?.port(), 0, 0)
+                        .into(),
+                )?;
+                UdpSocket::from_std(std::net::UdpSocket::from(socket))
+            };
+            let ipv6 = match ipv6_socket {
                 Ok(s) => s,
                 Err(e) => {
+                    if port != 0 {
+                        error!("IPv6 listen port[{port}] already is use, failed to bind");
+                        return Err(e);
+                    }
                     debug!(
                         "failed to bind IPv6 socket, will retry with another port: {}",
                         e
@@ -34,8 +53,6 @@ impl Listener {
                     continue;
                 }
             };
-
-            info!("Listening on {}", ipv4.local_addr()?);
             info!("Listening on {}", ipv6.local_addr()?);
 
             return Ok((
