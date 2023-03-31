@@ -6,7 +6,7 @@
 [<img alt="build status" height="20" src="https://img.shields.io/github/actions/workflow/status/lodrem/wiretun/ci.yml?branch=master&style=for-the-badge">](https://github.com/lodrem/wiretun/actions?query%3Amaster)
 [<img alt="dependency status" height="20" src="https://deps.rs/repo/github/lodrem/wiretun/status.svg?style=for-the-badge&t=0">](https://deps.rs/repo/github/lodrem/wiretun)
 
-This library provides a cross-platform, asynchronous (with [Tokio](https://tokio.rs/)) WireGuard implementation.
+This library provides a cross-platform, asynchronous (with [Tokio](https://tokio.rs/)) [WireGuard](https://www.wireguard.com/) implementation.
 
 **WARNING**: This library is still in early development and is not ready for production use.
 
