@@ -4,7 +4,8 @@ mod protocol;
 
 use connection::Connection;
 pub use error::Error;
-use protocol::{DeviceInfo, PeerInfo, Request, Response};
+use protocol::{GetDevice, GetPeer, Request, Response, SetDevice, SetPeer};
+use std::collections::HashSet;
 
 use std::path::{Path, PathBuf};
 
@@ -43,12 +44,12 @@ async fn handle_connection<T>(mut conn: Connection, device: DeviceHandle<T>)
 where
     T: Tun + 'static,
 {
-    debug!("accepting new UAPI connection");
+    debug!("UAPI: accepting new connection");
 
     loop {
         match conn.next().await {
             Ok(Request::Get) => {
-                debug!("UAPI received GET request");
+                debug!("UAPI: received GET request");
                 let cfg = device.config();
                 let mut metrics = device.metrics();
                 let peers = cfg
@@ -56,7 +57,7 @@ where
                     .into_iter()
                     .map(|p| {
                         let m = metrics.peers.remove(&p.public_key).unwrap();
-                        PeerInfo {
+                        GetPeer {
                             public_key: p.public_key,
                             psk: p.preshared_key.unwrap_or_default(),
                             allowed_ips: p.allowed_ips,
@@ -68,7 +69,7 @@ where
                         }
                     })
                     .collect();
-                conn.write(Response::Get(DeviceInfo {
+                conn.write(Response::Get(GetDevice {
                     private_key: cfg.private_key,
                     listen_port: cfg.listen_port,
                     fwmark: 0,
@@ -76,8 +77,56 @@ where
                 }))
                 .await;
             }
-            Ok(Request::Set) => {
-                debug!("UAPI received SET request");
+            Ok(Request::Set(req)) => {
+                debug!("UAPI: received SET request");
+                if req.replace_peers {
+                    device.clear_peers();
+                }
+                if let Some(_private_key) = req.private_key {
+                    // unsupoorted
+                }
+                if let Some(_port) = req.listen_port {
+                    // unsupoorted
+                }
+                if let Some(_fwmark) = req.fwmark {
+                    // unsupoorted
+                }
+
+                for peer in req.peers {
+                    if peer.remove {
+                        device.remove_peer(&peer.public_key);
+                        break;
+                    }
+                    if device.peer_config(&peer.public_key).is_none() {
+                        // to insert
+                        if peer.update_only {
+                            continue;
+                        }
+                        device.insert_peer(peer.public_key, peer.allowed_ips, peer.endpoint);
+                    } else {
+                        // to update
+                        if let Some(endpoint) = peer.endpoint {
+                            device.update_peer_endpoint(&peer.public_key, endpoint);
+                        }
+
+                        let mut allowed_ips = device
+                            .list_allowed_ips_by_peer(&peer.public_key)
+                            .unwrap()
+                            .into_iter()
+                            .collect::<HashSet<_>>();
+                        if peer.replace_allowed_ips {
+                            allowed_ips.clear();
+                        }
+                        for ip in peer.allowed_ips {
+                            allowed_ips.insert(ip);
+                        }
+                        device.update_allowed_ips_by_peer(
+                            &peer.public_key,
+                            allowed_ips.into_iter().collect(),
+                        );
+                    }
+                }
+                conn.write(Response::Ok).await;
             }
             Err(e) => {
                 debug!("UAPI connection error: {}", e);

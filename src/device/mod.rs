@@ -5,6 +5,7 @@ mod metrics;
 mod outbound;
 mod peer;
 mod rate_limiter;
+mod time;
 
 pub use config::{DeviceConfig, PeerConfig};
 pub use device::{Device, DeviceHandle};

@@ -11,7 +11,7 @@ fn max_mask_for_ip(ip: &IpAddr) -> u8 {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Hash)]
 pub struct Cidr(IpNetwork);
 
 impl Cidr {
@@ -34,6 +34,14 @@ impl From<IpAddr> for Cidr {
         Self::new(value, mask)
     }
 }
+
+impl PartialEq for Cidr {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Eq for Cidr {}
 
 impl FromStr for Cidr {
     type Err = ParseCidrError;
@@ -79,6 +87,10 @@ impl<T> CidrTable<T> {
 
     pub fn get_by_ip(&self, ip: IpAddr) -> Option<&T> {
         self.table.longest_match(ip).map(|(_, v)| v)
+    }
+
+    pub fn remove(&mut self, cidr: Cidr) {
+        self.table.remove(cidr.0);
     }
 
     pub fn clear(&mut self) {

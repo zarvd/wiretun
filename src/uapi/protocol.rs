@@ -8,22 +8,44 @@ use crate::Cidr;
 
 pub enum Request {
     Get,
-    Set,
+    Set(SetDevice),
 }
 
 pub enum Response {
-    Get(DeviceInfo),
+    Ok,
+    Get(GetDevice),
     Err,
 }
 
-pub struct DeviceInfo {
+#[derive(Debug, Eq, PartialEq)]
+pub struct SetDevice {
+    pub private_key: Option<[u8; 32]>,
+    pub listen_port: Option<u16>,
+    pub fwmark: Option<u32>,
+    pub replace_peers: bool,
+    pub peers: Vec<SetPeer>,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub struct SetPeer {
+    pub public_key: [u8; 32],
+    pub remove: bool,
+    pub update_only: bool,
+    pub psk: Option<[u8; 32]>,
+    pub endpoint: Option<SocketAddr>,
+    pub persistent_keepalive_interval: Option<u32>,
+    pub replace_allowed_ips: bool,
+    pub allowed_ips: Vec<Cidr>,
+}
+
+pub struct GetDevice {
     pub private_key: [u8; 32],
     pub listen_port: u16,
     pub fwmark: u32,
-    pub peers: Vec<PeerInfo>,
+    pub peers: Vec<GetPeer>,
 }
 
-pub struct PeerInfo {
+pub struct GetPeer {
     pub public_key: [u8; 32],
     pub psk: [u8; 32],
     pub allowed_ips: Vec<Cidr>,
@@ -34,7 +56,7 @@ pub struct PeerInfo {
     pub persistent_keepalive_interval: u32,
 }
 
-impl Into<Bytes> for DeviceInfo {
+impl Into<Bytes> for GetDevice {
     fn into(self) -> Bytes {
         let mut buf = KVBuffer::new();
         if self.private_key != [0u8; 32] {

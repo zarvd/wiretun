@@ -16,7 +16,6 @@
 
 mod device;
 mod noise;
-mod time;
 mod tun;
 
 pub use device::{Cidr, Device, DeviceConfig, DeviceHandle, ParseCidrError, PeerConfig};

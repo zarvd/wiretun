@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicI16, Ordering};
 use std::time::Duration;
 
-use crate::time::AtomicInstant;
+use super::time::AtomicInstant;
 
 pub(crate) struct RateLimiter {
     tokens: u16,

@@ -1,4 +1,4 @@
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -11,11 +11,11 @@ use tracing::{debug, error, warn};
 use super::outbound::{Endpoint, Listener};
 use super::peer::Peers;
 use super::rate_limiter::RateLimiter;
-use super::{DeviceConfig, DeviceMetrics, Error};
+use super::{DeviceConfig, DeviceMetrics, Error, PeerConfig};
 use crate::noise::crypto::LocalStaticSecret;
 use crate::noise::handshake::{Cookie, IncomingInitiation};
 use crate::noise::protocol::Message;
-use crate::Tun;
+use crate::{Cidr, Tun};
 
 const MAX_PEERS: usize = 1 << 16;
 
@@ -29,6 +29,8 @@ where
     cfg: Mutex<DeviceConfig>,
     rate_limiter: RateLimiter,
     cookie: Cookie,
+    listener_v4: Listener,
+    listener_v6: Listener,
 }
 
 impl<T> Inner<T>
@@ -42,6 +44,13 @@ where
 
     pub fn config(&self) -> DeviceConfig {
         self.cfg.lock().unwrap().clone()
+    }
+
+    pub fn endpoint_for(&self, addr: SocketAddr) -> Endpoint {
+        match addr {
+            SocketAddr::V4(_) => self.listener_v4.endpoint_for(addr),
+            SocketAddr::V6(_) => self.listener_v6.endpoint_for(addr),
+        }
     }
 }
 
@@ -86,16 +95,29 @@ where
 {
     pub async fn with_tun(tun: T, mut cfg: DeviceConfig) -> Result<Self, Error> {
         let stop = Arc::new(Notify::new());
-        let secret = LocalStaticSecret::new(cfg.private_key);
+
         let (listener_v4, listener_v6) = Listener::bind(cfg.listen_port).await?;
         cfg.listen_port = listener_v4.listening_port(); // update cfg.listen_port in case it was 0
-        let peers = Peers::new(tun.clone(), secret.clone());
-        for cfg in &cfg.peers {
-            let endpoint = cfg.endpoint.map(|addr| listener_v4.endpoint_for(addr));
-            peers.insert(cfg.public_key, &cfg.allowed_ips, endpoint);
-        }
+
+        let secret = LocalStaticSecret::new(cfg.private_key);
+
+        let peers = {
+            let peers = Peers::new(tun.clone(), secret.clone());
+            cfg.peers.iter().for_each(|p| {
+                peers.insert(
+                    p.public_key,
+                    p.allowed_ips.clone(),
+                    p.endpoint.map(|addr| match addr {
+                        SocketAddr::V4(_) => listener_v4.endpoint_for(addr),
+                        SocketAddr::V6(_) => listener_v6.endpoint_for(addr),
+                    }),
+                );
+            });
+            peers
+        };
 
         let cookie = Cookie::new(&secret);
+
         let rate_limiter = RateLimiter::new(1_000);
         let inner = {
             let cfg = Mutex::new(cfg);
@@ -106,6 +128,8 @@ where
                 cfg,
                 cookie,
                 rate_limiter,
+                listener_v4: listener_v4.clone(),
+                listener_v6: listener_v6.clone(),
             })
         };
         let handles = vec![
@@ -163,6 +187,7 @@ where
         self.inner.tun.name()
     }
 
+    #[inline]
     pub fn config(&self) -> DeviceConfig {
         self.inner.config()
     }
@@ -172,8 +197,80 @@ where
         self.inner.metrics()
     }
 
-    pub fn update_config(&self, _cfg: DeviceConfig) {
-        todo!()
+    pub fn peer_config(&self, public_key: &[u8; 32]) -> Option<PeerConfig> {
+        self.inner
+            .cfg
+            .lock()
+            .unwrap()
+            .peers
+            .iter()
+            .find(|p| p.public_key == *public_key)
+            .cloned()
+    }
+
+    pub fn insert_peer(
+        &self,
+        public_key: [u8; 32],
+        allowed_ips: Vec<Cidr>,
+        endpoint: Option<SocketAddr>,
+    ) -> bool {
+        if self.inner.peers.get_by_key(&public_key).is_some() {
+            return false;
+        }
+
+        let mut cfg = self.inner.cfg.lock().unwrap();
+        self.inner.peers.insert(
+            public_key,
+            allowed_ips.clone(),
+            endpoint.map(|addr| self.inner.endpoint_for(addr)),
+        );
+        cfg.peers.push(PeerConfig {
+            public_key: public_key,
+            allowed_ips,
+            endpoint,
+            preshared_key: None,
+            persistent_keepalive: None,
+        });
+        true
+    }
+
+    pub fn remove_peer(&self, public_key: &[u8; 32]) {
+        let mut cfg = self.inner.cfg.lock().unwrap();
+        self.inner.peers.remove_by_key(public_key);
+        cfg.peers.retain(|p| p.public_key != *public_key);
+    }
+
+    pub fn update_peer_endpoint(&self, public_key: &[u8; 32], addr: SocketAddr) {
+        let mut cfg = self.inner.cfg.lock().unwrap();
+        self.inner
+            .peers
+            .get_by_key(public_key)
+            .map(|p| p.update_endpoint(self.inner.endpoint_for(addr)));
+        cfg.peers
+            .iter_mut()
+            .find(|p| p.public_key == *public_key)
+            .map(|p| p.endpoint = Some(addr));
+    }
+
+    pub fn list_allowed_ips_by_peer(&self, public_key: &[u8; 32]) -> Option<Vec<Cidr>> {
+        self.inner.peers.list_allowed_ips_by_key(public_key)
+    }
+
+    pub fn update_allowed_ips_by_peer(&self, public_key: &[u8; 32], allowed_ips: Vec<Cidr>) {
+        let mut cfg = self.inner.cfg.lock().unwrap();
+        self.inner
+            .peers
+            .update_allowed_ips_by_key(public_key, allowed_ips.clone());
+        cfg.peers
+            .iter_mut()
+            .find(|p| p.public_key == *public_key)
+            .map(|p| p.allowed_ips = allowed_ips);
+    }
+
+    pub fn clear_peers(&self) {
+        let mut cfg = self.inner.cfg.lock().unwrap();
+        self.inner.peers.clear();
+        cfg.peers.clear();
     }
 }
 
@@ -250,7 +347,7 @@ where
                 IncomingInitiation::parse(&inner.secret, &p).unwrap_or_else(|_| todo!());
             if let Some(peer) = inner
                 .peers
-                .by_static_public_key(initiation.static_public_key.as_bytes())
+                .get_by_key(initiation.static_public_key.as_bytes())
             {
                 peer.handle_handshake_initiation(endpoint, initiation).await;
             }
@@ -262,7 +359,7 @@ where
                 Message::TransportData(p) => p.receiver_index,
                 _ => unreachable!(),
             };
-            if let Some((session, peer)) = inner.peers.by_index(receiver_index) {
+            if let Some((session, peer)) = inner.peers.get_session_by_index(receiver_index) {
                 match msg {
                     Message::HandshakeResponse(p) => {
                         peer.handle_handshake_response(endpoint, p, session).await;
@@ -331,7 +428,7 @@ where
 
             debug!("trying to send packet to {}", dst);
 
-            let peer = inner.peers.by_allow_ip(dst);
+            let peer = inner.peers.get_by_allow_ip(dst);
 
             if let Some(peer) = peer {
                 debug!("sending packet[{}] to {dst}", buf.len());
