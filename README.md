@@ -6,6 +6,29 @@
 [<img alt="build status" height="20" src="https://img.shields.io/github/workflow/status/lodrem/wiretun/CI/master?style=for-the-badge">](https://github.com/lodrem/wiretun/actions?query%3Amaster)
 [<img alt="dependency status" height="20" src="https://deps.rs/repo/github/lodrem/wiretun/status.svg?style=for-the-badge">](https://deps.rs/repo/github/lodrem/wiretun)
 
+This library provides a cross-platform, asynchronous (with [Tokio](https://tokio.rs/)) WireGuard implementation.
+
+```toml
+[dependencies]
+wiretun = { version = "0.1", features = ["uapi"] }
+```
+
+## Example
+
+```rust
+use wiretun::{Cidr, Device, DeviceConfig, PeerConfig, uapi};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+   let cfg = DeviceConfig::default()
+       .listen_port(40001);
+   let device = Device::native("utun88", cfg).await?;
+   uapi::bind_and_handle(device.handle()).await?;
+   Ok(())
+}
+```
+
+More examples can be found in the [examples](examples) directory.
 
 ## Minimum supported Rust version (MSRV)
 

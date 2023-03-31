@@ -3,6 +3,21 @@ use std::time::Duration;
 
 use super::Cidr;
 
+/// Configuration for a device.
+///
+/// # Examples
+///
+/// ```
+/// use wiretun::{Cidr, DeviceConfig, PeerConfig};
+///
+/// fn main() {
+///     let cfg = DeviceConfig::default()
+///         .listen_port(40001)
+///         .private_key([0; 32])
+///         .peer(PeerConfig::default().public_key([0; 32]).allowed_ip(""));
+/// }
+///
+/// ```
 #[derive(Default, Clone)]
 pub struct DeviceConfig {
     pub private_key: [u8; 32],
@@ -10,6 +25,7 @@ pub struct DeviceConfig {
     pub peers: Vec<PeerConfig>,
 }
 
+/// Configuration for a peer.
 #[derive(Default, Clone)]
 pub struct PeerConfig {
     pub public_key: [u8; 32],

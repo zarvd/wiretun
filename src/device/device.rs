@@ -56,7 +56,7 @@ where
 
 /// A WireGuard device.
 ///
-/// When enabled with the `tun-native` feature, you can create a native device using the method [`native`](`Device::native`).
+/// When enabled with the `native` feature, you can create a native device using the method [`native`](`Device::native`).
 ///
 /// # Examples
 ///
@@ -81,7 +81,7 @@ where
     stop: Arc<Notify>,
 }
 
-#[cfg(feature = "tun-native")]
+#[cfg(feature = "native")]
 impl Device<crate::NativeTun> {
     pub async fn native(name: &str, cfg: DeviceConfig) -> Result<Self, Error> {
         let tun = crate::NativeTun::new(name).map_err(Error::Tun)?;
@@ -173,6 +173,28 @@ where
     }
 }
 
+/// A handle to a device.
+///
+/// This handle can be cloned and sent to other threads.
+///
+/// # Examples
+///
+/// ```no_run
+/// use wiretun::{Device, DeviceConfig};
+///
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let cfg = DeviceConfig::default();
+///     let device = Device::native("utun", cfg).await?;
+///
+///     let handle = device.handle();
+///
+///     let _ = handle.tun_name();  // fetch the name of the underlying TUN device
+///     let _ = handle.config();    // fetch the configuration of the device
+///     let _ = handle.peer_config(&[0; 32]); // fetch the configuration of a peer by its public key
+///     let _ = handle.metrics();   // fetch the metrics of the device
+///     let _ = handle.insert_peer(&[0; 32], vec![], None); // insert a peer
+/// }
 #[derive(Clone)]
 pub struct DeviceHandle<T>
 where
