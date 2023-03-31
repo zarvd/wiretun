@@ -91,14 +91,6 @@ where
         }
     }
 
-    pub fn list_allowed_ips_by_key(&self, public_key: &[u8; 32]) -> Option<Vec<Cidr>> {
-        let index = self.by_static_public_key.read().unwrap();
-        index
-            .get(public_key)
-            .cloned()
-            .map(|e| e.allowed_ips.into_iter().collect())
-    }
-
     pub fn update_allowed_ips_by_key(&self, public_key: &[u8; 32], allowed_ips: Vec<Cidr>) -> bool {
         let allowed_ips = allowed_ips.into_iter().collect();
 

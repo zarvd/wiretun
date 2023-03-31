@@ -2,6 +2,8 @@ use std::error::Error;
 
 use base64::engine::general_purpose::STANDARD as base64Encoding;
 use base64::Engine;
+use tokio::signal::unix::{signal, SignalKind};
+use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use wiretun::{uapi, Cidr, Device, DeviceConfig, PeerConfig};
@@ -41,9 +43,29 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 // .endpoint("20.187.108.253:50005".parse()?)
                 .allowed_ip("10.0.0.2".parse::<Cidr>()?),
         );
+
     let device = Device::native("utun88", cfg).await?;
 
-    uapi::bind_and_handle(device.handle()).await?;
+    let handle = device.handle();
+    tokio::spawn(async move {
+        uapi::bind_and_handle(handle).await.unwrap();
+    });
+
+    shutdown().await;
+    device.terminate().await; // stop gracefully
 
     Ok(())
+}
+
+pub async fn shutdown() {
+    tokio::select! {
+        () = recv_signal_and_shutdown(SignalKind::interrupt()) => {}
+        () = recv_signal_and_shutdown(SignalKind::terminate()) => {}
+    };
+
+    info!("recv signal and shutting down");
+}
+
+async fn recv_signal_and_shutdown(kind: SignalKind) {
+    signal(kind).expect("register signal handler").recv().await;
 }

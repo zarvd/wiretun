@@ -155,6 +155,7 @@ where
 
     pub async fn terminate(mut self) {
         self.stop.notify_waiters();
+        self.inner.peers.clear();
         join_all(self.handles.drain(..)).await;
     }
 }
@@ -165,6 +166,7 @@ where
 {
     fn drop(&mut self) {
         self.stop.notify_waiters();
+        self.inner.peers.clear();
         for handle in self.handles.drain(..) {
             handle.abort();
         }
@@ -183,20 +185,25 @@ impl<T> DeviceHandle<T>
 where
     T: Tun + 'static,
 {
+    /// Returns the name of the underlying TUN device.
+    #[inline(always)]
     pub fn tun_name(&self) -> &str {
         self.inner.tun.name()
     }
 
-    #[inline]
+    /// Returns the configuration of the device.
+    #[inline(always)]
     pub fn config(&self) -> DeviceConfig {
         self.inner.config()
     }
 
-    #[inline]
+    /// Returns the metrics of the device.
+    #[inline(always)]
     pub fn metrics(&self) -> DeviceMetrics {
         self.inner.metrics()
     }
 
+    /// Returns the configuration of a peer by its public key.
     pub fn peer_config(&self, public_key: &[u8; 32]) -> Option<PeerConfig> {
         self.inner
             .cfg
@@ -208,6 +215,8 @@ where
             .cloned()
     }
 
+    /// Inserts a new peer into the device.
+    /// Returns `true` if the peer was inserted, `false` if a peer with the same public key already exists.
     pub fn insert_peer(
         &self,
         public_key: [u8; 32],
@@ -234,12 +243,14 @@ where
         true
     }
 
+    /// Removes a peer from the device.
     pub fn remove_peer(&self, public_key: &[u8; 32]) {
         let mut cfg = self.inner.cfg.lock().unwrap();
         self.inner.peers.remove_by_key(public_key);
         cfg.peers.retain(|p| p.public_key != *public_key);
     }
 
+    /// Updates the endpoint of a peer.
     pub fn update_peer_endpoint(&self, public_key: &[u8; 32], addr: SocketAddr) {
         let mut cfg = self.inner.cfg.lock().unwrap();
         self.inner
@@ -252,10 +263,7 @@ where
             .map(|p| p.endpoint = Some(addr));
     }
 
-    pub fn list_allowed_ips_by_peer(&self, public_key: &[u8; 32]) -> Option<Vec<Cidr>> {
-        self.inner.peers.list_allowed_ips_by_key(public_key)
-    }
-
+    /// Updates the allowed IPs of a peer.
     pub fn update_allowed_ips_by_peer(&self, public_key: &[u8; 32], allowed_ips: Vec<Cidr>) {
         let mut cfg = self.inner.cfg.lock().unwrap();
         self.inner
@@ -267,6 +275,7 @@ where
             .map(|p| p.allowed_ips = allowed_ips);
     }
 
+    /// Removes all peers from the device.
     pub fn clear_peers(&self) {
         let mut cfg = self.inner.cfg.lock().unwrap();
         self.inner.peers.clear();
