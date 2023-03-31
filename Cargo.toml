@@ -17,6 +17,8 @@ uapi = []
 
 [dependencies]
 libc = "0.2"
+nix = "0.26"
+socket2 = "0.5"
 bytes = "1.4"
 regex = "1"
 rand_core = "0.6"

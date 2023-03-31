@@ -106,7 +106,7 @@ impl Tun for NativeTun {
     }
 
     async fn recv(&self) -> Result<Vec<u8>, Error> {
-        let mut buf = BytesMut::zeroed(1500); // TODO: should we use a buffer pool?
+        let mut buf = BytesMut::zeroed(1500);
 
         loop {
             let ret = {
