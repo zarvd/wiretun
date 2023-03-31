@@ -129,8 +129,11 @@ where
     #[inline]
     pub(super) fn stop(&self) {
         self.inner.running.store(false, atomic::Ordering::SeqCst);
-        let _ = self.inner.inbound.blocking_send(InboundEvent::EOF);
-        let _ = self.inner.outbound.blocking_send(OutboundEvent::EOF);
+        let inner = self.inner.clone();
+        tokio::spawn(async move {
+            let _ = inner.inbound.send(InboundEvent::EOF).await;
+            let _ = inner.outbound.send(OutboundEvent::EOF).await;
+        });
     }
 }
 
@@ -261,7 +264,6 @@ where
         time::sleep_until(inner.monitor.handshake().initiation_at().into()).await;
     }
     debug!("exiting handshake loop for peer {inner}")
-    // close all loop
 }
 
 // Send to endpoint if connected, otherwise queue for later
@@ -277,10 +279,12 @@ where
                 inner.keepalive().await;
             }
             event = rx.recv() => {
-                if let Some(OutboundEvent::Data(data)) = event {
-                    tick_outbound(inner.clone(), data).await;
-                } else {
-                    break;
+                match event {
+                    Some(OutboundEvent::Data(data)) => {
+                        tick_outbound(inner.clone(), data).await;
+                    }
+                    Some(OutboundEvent::EOF) => break,
+                    None => break,
                 }
             }
         }
@@ -320,7 +324,7 @@ where
             InboundEvent::HanshakeInitiation {
                 endpoint,
                 initiation,
-            } => handle_handshake_inititation(inner.clone(), endpoint, initiation).await,
+            } => handle_handshake_initiation(inner.clone(), endpoint, initiation).await,
             InboundEvent::HandshakeResponse {
                 endpoint,
                 packet,
@@ -342,7 +346,7 @@ where
     debug!("exiting inbound loop for peer {inner}");
 }
 
-async fn handle_handshake_inititation<T>(
+async fn handle_handshake_initiation<T>(
     inner: Arc<Inner<T>>,
     endpoint: Endpoint,
     initiation: IncomingInitiation,

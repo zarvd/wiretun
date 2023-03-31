@@ -97,33 +97,29 @@ where
                         device.remove_peer(&peer.public_key);
                         break;
                     }
-                    if device.peer_config(&peer.public_key).is_none() {
-                        // to insert
-                        if peer.update_only {
-                            continue;
+                    match device.peer_config(&peer.public_key) {
+                        Some(cfg) => {
+                            // to update
+                            if let Some(endpoint) = peer.endpoint {
+                                device.update_peer_endpoint(&peer.public_key, endpoint);
+                            }
+                            let mut allowed_ips =
+                                cfg.allowed_ips.into_iter().collect::<HashSet<_>>();
+                            if peer.replace_allowed_ips {
+                                allowed_ips.clear();
+                            }
+                            for ip in peer.allowed_ips {
+                                allowed_ips.insert(ip);
+                            }
+                            device.update_allowed_ips_by_peer(
+                                &peer.public_key,
+                                allowed_ips.into_iter().collect(),
+                            );
                         }
-                        device.insert_peer(peer.public_key, peer.allowed_ips, peer.endpoint);
-                    } else {
-                        // to update
-                        if let Some(endpoint) = peer.endpoint {
-                            device.update_peer_endpoint(&peer.public_key, endpoint);
+                        None if !peer.update_only => {
+                            device.insert_peer(peer.public_key, peer.allowed_ips, peer.endpoint);
                         }
-
-                        let mut allowed_ips = device
-                            .list_allowed_ips_by_peer(&peer.public_key)
-                            .unwrap()
-                            .into_iter()
-                            .collect::<HashSet<_>>();
-                        if peer.replace_allowed_ips {
-                            allowed_ips.clear();
-                        }
-                        for ip in peer.allowed_ips {
-                            allowed_ips.insert(ip);
-                        }
-                        device.update_allowed_ips_by_peer(
-                            &peer.public_key,
-                            allowed_ips.into_iter().collect(),
-                        );
+                        _ => {}
                     }
                 }
                 conn.write(Response::Ok).await;
