@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 
-use crate::time::{AtomicInstant, AtomicTimestamp};
+use crate::device::time::{AtomicInstant, AtomicTimestamp};
 
 const REKEY_AFTER_MESSAGES: u64 = 1 << 60;
 const REJECT_AFTER_MESSAGES: u64 = u64::MAX - (1 << 13);

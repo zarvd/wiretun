@@ -2,10 +2,8 @@ use std::net::SocketAddr;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use crate::noise::crypto;
 use bytes::{BufMut, BytesMut};
 use rand_core::{OsRng, RngCore};
-use tracing::warn;
 
 use super::{LABEL_COOKIE, LABEL_MAC1};
 use crate::noise::crypto::{hash, mac, xaead_encrypt, LocalStaticSecret, PeerStaticSecret};

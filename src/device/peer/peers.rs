@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::RwLock;
 
@@ -9,6 +9,15 @@ use crate::device::outbound::Endpoint;
 use crate::noise::crypto::LocalStaticSecret;
 use crate::Tun;
 
+#[derive(Clone)]
+struct PeerEntry<T>
+where
+    T: Tun + 'static,
+{
+    peer: Peer<T>,
+    allowed_ips: HashSet<Cidr>,
+}
+
 pub(crate) struct Peers<T>
 where
     T: Tun + 'static,
@@ -16,7 +25,7 @@ where
     tun: T,
     secret: LocalStaticSecret,
     session_mgr: SessionManager,
-    by_static_public_key: RwLock<HashMap<[u8; 32], Peer<T>>>,
+    by_static_public_key: RwLock<HashMap<[u8; 32], PeerEntry<T>>>,
     by_allowed_ips: RwLock<CidrTable<Peer<T>>>,
 }
 
@@ -37,53 +46,111 @@ where
     pub fn insert(
         &self,
         public_key: [u8; 32],
-        allowed_ips: &[Cidr],
+        allowed_ips: Vec<Cidr>,
         endpoint: Option<Endpoint>,
     ) -> Peer<T> {
         let mut by_static_public_key = self.by_static_public_key.write().unwrap();
-        let peer = by_static_public_key.entry(public_key).or_insert_with(|| {
-            Peer::new(
+        let entry = by_static_public_key.entry(public_key).or_insert_with(|| {
+            let p = Peer::new(
                 self.tun.clone(),
                 self.secret.clone().with_peer(public_key),
                 self.session_mgr.clone(),
                 endpoint,
-            )
+            );
+            PeerEntry {
+                peer: p.clone(),
+                allowed_ips: allowed_ips.clone().into_iter().collect(),
+            }
         });
 
         let mut by_allowed_ips = self.by_allowed_ips.write().unwrap();
-        for &cidr in allowed_ips {
-            by_allowed_ips.insert(cidr, peer.clone());
+        for cidr in allowed_ips {
+            by_allowed_ips.insert(cidr, entry.peer.clone());
         }
 
-        peer.clone()
+        entry.peer.clone()
     }
 
     /// Returns the peer that matches the given public key.
-    pub fn by_static_public_key(&self, public_key: &[u8; 32]) -> Option<Peer<T>> {
+    pub fn get_by_key(&self, public_key: &[u8; 32]) -> Option<Peer<T>> {
         let index = self.by_static_public_key.read().unwrap();
-        index.get(public_key).cloned()
+        index.get(public_key).cloned().map(|e| e.peer)
     }
 
     /// Returns the peer that matches the given IP address.
-    pub fn by_allow_ip(&self, ip: IpAddr) -> Option<Peer<T>> {
+    pub fn get_by_allow_ip(&self, ip: IpAddr) -> Option<Peer<T>> {
         let index = self.by_allowed_ips.read().unwrap();
         index.get_by_ip(ip).cloned()
     }
 
     /// Returns the peer that matches the index of the session.
-    pub fn by_index(&self, i: u32) -> Option<(Session, Peer<T>)> {
+    pub fn get_session_by_index(&self, i: u32) -> Option<(Session, Peer<T>)> {
         match self.session_mgr.get_by_index(i) {
-            Some((session, pub_key)) => self
-                .by_static_public_key(&pub_key)
-                .map(|peer| (session, peer)),
+            Some((session, pub_key)) => self.get_by_key(&pub_key).map(|peer| (session, peer)),
             None => None,
         }
+    }
+
+    pub fn list_allowed_ips_by_key(&self, public_key: &[u8; 32]) -> Option<Vec<Cidr>> {
+        let index = self.by_static_public_key.read().unwrap();
+        index
+            .get(public_key)
+            .cloned()
+            .map(|e| e.allowed_ips.into_iter().collect())
+    }
+
+    pub fn update_allowed_ips_by_key(&self, public_key: &[u8; 32], allowed_ips: Vec<Cidr>) -> bool {
+        let allowed_ips = allowed_ips.into_iter().collect();
+
+        let mut by_static_public_key = self.by_static_public_key.write().unwrap();
+        match by_static_public_key.get_mut(public_key) {
+            Some(entry) => {
+                if entry.allowed_ips == allowed_ips {
+                    return false;
+                }
+                let mut by_allowed_ips = self.by_allowed_ips.write().unwrap();
+                by_allowed_ips.clear();
+                for cidr in allowed_ips.clone() {
+                    by_allowed_ips.insert(cidr, entry.peer.clone());
+                }
+                entry.allowed_ips = allowed_ips;
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub fn remove_by_key(&self, public_key: &[u8; 32]) {
+        let mut by_static_public_key = self.by_static_public_key.write().unwrap();
+        if let Some(entry) = by_static_public_key.remove(public_key) {
+            entry.peer.stop();
+
+            {
+                let mut by_allowed_ips = self.by_allowed_ips.write().unwrap();
+                for cidr in entry.allowed_ips {
+                    by_allowed_ips.remove(cidr);
+                }
+            }
+
+            self.session_mgr.remove_by_key(public_key);
+        }
+    }
+
+    pub fn clear(&self) {
+        let mut by_static_public_key = self.by_static_public_key.write().unwrap();
+        by_static_public_key
+            .values()
+            .for_each(|entry| entry.peer.stop());
+        by_static_public_key.clear();
+        let mut by_allowed_ips = self.by_allowed_ips.write().unwrap();
+        by_allowed_ips.clear();
+        self.session_mgr.clear();
     }
 
     pub fn metrics(&self) -> HashMap<[u8; 32], PeerMetrics> {
         let rv = self.by_static_public_key.read().unwrap().clone();
         rv.into_iter()
-            .map(|(pub_key, peer)| (pub_key, peer.metrics()))
+            .map(|(pub_key, entry)| (pub_key, entry.peer.metrics()))
             .collect()
     }
 }
@@ -93,8 +160,8 @@ where
     T: Tun + 'static,
 {
     fn drop(&mut self) {
-        for peer in self.by_static_public_key.write().unwrap().values() {
-            peer.stop();
+        for entry in self.by_static_public_key.write().unwrap().values() {
+            entry.peer.stop();
         }
     }
 }

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::sync::atomic::AtomicU64;
@@ -271,12 +271,14 @@ impl Sessions {
 
 struct SessionManagerInner {
     by_index: HashMap<u32, (Session, [u8; 32])>,
+    by_key: HashMap<[u8; 32], HashSet<u32>>,
 }
 
 impl SessionManagerInner {
     pub fn new() -> Self {
         Self {
             by_index: HashMap::new(),
+            by_key: HashMap::new(),
         }
     }
 }
@@ -294,9 +296,13 @@ impl SessionManager {
 
     pub fn insert(&self, session: Session, peer_static_pub: [u8; 32]) {
         let mut inner = self.inner.write().unwrap();
+        let index = session.sender_index;
+        inner.by_index.insert(index, (session, peer_static_pub));
         inner
-            .by_index
-            .insert(session.sender_index, (session, peer_static_pub));
+            .by_key
+            .entry(peer_static_pub)
+            .or_default()
+            .insert(index);
     }
 
     pub fn get_by_index(&self, index: u32) -> Option<(Session, [u8; 32])> {
@@ -304,9 +310,31 @@ impl SessionManager {
         inner.by_index.get(&index).cloned()
     }
 
-    fn remove(&self, session: &Session) -> Option<(Session, [u8; 32])> {
+    pub fn remove(&self, session: &Session) -> Option<(Session, [u8; 32])> {
         let mut inner = self.inner.write().unwrap();
-        inner.by_index.remove(&session.sender_index)
+        if let Some((session, key)) = inner.by_index.remove(&session.sender_index) {
+            inner
+                .by_key
+                .get_mut(&key)
+                .unwrap()
+                .remove(&session.sender_index);
+            Some((session, key))
+        } else {
+            None
+        }
+    }
+
+    pub fn remove_by_key(&self, key: &[u8; 32]) {
+        let mut inner = self.inner.write().unwrap();
+        if let Some(indices) = inner.by_key.remove(key) {
+            for index in indices {
+                inner.by_index.remove(&index);
+            }
+        }
+    }
+
+    pub fn clear(&self) {
+        *self.inner.write().unwrap() = SessionManagerInner::new();
     }
 }
 

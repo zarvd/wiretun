@@ -115,6 +115,11 @@ where
     }
 
     #[inline]
+    pub fn update_endpoint(&self, endpoint: Endpoint) {
+        self.inner.update_endpoint(endpoint);
+    }
+
+    #[inline]
     pub fn metrics(&self) -> PeerMetrics {
         self.inner.monitor.metrics()
     }
