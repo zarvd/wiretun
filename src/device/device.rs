@@ -241,10 +241,15 @@ where
     }
 
     pub fn update_peer_endpoint(&self, public_key: &[u8; 32], addr: SocketAddr) {
+        let mut cfg = self.inner.cfg.lock().unwrap();
         self.inner
             .peers
             .get_by_key(public_key)
             .map(|p| p.update_endpoint(self.inner.endpoint_for(addr)));
+        cfg.peers
+            .iter_mut()
+            .find(|p| p.public_key == *public_key)
+            .map(|p| p.endpoint = Some(addr));
     }
 
     pub fn list_allowed_ips_by_peer(&self, public_key: &[u8; 32]) -> Option<Vec<Cidr>> {

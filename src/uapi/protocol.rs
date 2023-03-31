@@ -12,6 +12,7 @@ pub enum Request {
 }
 
 pub enum Response {
+    Ok,
     Get(GetDevice),
     Err,
 }

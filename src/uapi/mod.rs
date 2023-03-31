@@ -44,12 +44,12 @@ async fn handle_connection<T>(mut conn: Connection, device: DeviceHandle<T>)
 where
     T: Tun + 'static,
 {
-    debug!("accepting new UAPI connection");
+    debug!("UAPI: accepting new connection");
 
     loop {
         match conn.next().await {
             Ok(Request::Get) => {
-                debug!("UAPI received GET request");
+                debug!("UAPI: received GET request");
                 let cfg = device.config();
                 let mut metrics = device.metrics();
                 let peers = cfg
@@ -78,7 +78,7 @@ where
                 .await;
             }
             Ok(Request::Set(req)) => {
-                debug!("UAPI received SET request");
+                debug!("UAPI: received SET request");
                 if req.replace_peers {
                     device.clear_peers();
                 }
@@ -126,6 +126,7 @@ where
                         );
                     }
                 }
+                conn.write(Response::Ok).await;
             }
             Err(e) => {
                 debug!("UAPI connection error: {}", e);

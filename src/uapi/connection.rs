@@ -2,6 +2,7 @@ use bytes::Bytes;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::UnixStream;
+use tracing::debug;
 
 use super::{Error, Request, Response, SetDevice, SetPeer};
 use crate::noise::crypto;
@@ -35,12 +36,7 @@ impl Connection {
             }
             b"set=1\n" => {
                 let mut buf = vec![];
-                loop {
-                    self.reader.read_until(b'\n', &mut buf).await?;
-                    if buf.len() == 1 {
-                        break;
-                    }
-                }
+                while self.reader.read_until(b'\n', &mut buf).await? > 1 {}
                 let s = unsafe { String::from_utf8_unchecked(buf).trim_end().to_string() };
 
                 Ok(Request::Set(parse_set_request(&s)?))
@@ -53,6 +49,10 @@ impl Connection {
     /// The method is not cancellation safe.
     pub async fn write(&mut self, resp: Response) {
         match resp {
+            Response::Ok => {
+                debug!("UAPI: writing ok response");
+                self.writer.write_all(b"errno=0\n\n").await.unwrap();
+            }
             Response::Get(info) => {
                 let buf: Bytes = info.into();
                 self.writer.write_all(buf.as_ref()).await.unwrap();
@@ -63,6 +63,8 @@ impl Connection {
 }
 
 fn parse_set_request(s: &str) -> Result<SetDevice, Error> {
+    debug!("UAPI: parsing set request: {:?}", s);
+
     let mut set_device = SetDevice {
         private_key: None,
         listen_port: None,
