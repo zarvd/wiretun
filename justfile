@@ -11,7 +11,10 @@ unit-test:
 
 # Run integration tests against the current platform (Require sudo)
 integration-test:
-    sudo ./integration-tests/wiretun-to-wiretun/run-tests.sh
+    #!/usr/bin/env bash
+    pushd integration-tests/wiretun-to-wiretun
+    sudo ./run-test.sh
+    popd
 
 # Format code with rust
 fmt:
