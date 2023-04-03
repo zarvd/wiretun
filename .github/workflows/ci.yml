@@ -48,7 +48,11 @@ jobs:
           toolchain: stable
           components: clippy
           override: true
+      - name: Install just
+        uses: extractions/setup-just@v1
       - name: Run tests
+        run: |
+          just integration-test
 
   lint:
     name: Coding style check
