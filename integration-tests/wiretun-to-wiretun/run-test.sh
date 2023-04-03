@@ -15,6 +15,9 @@ export PEER1_PUB=jNMMQlzMwX0WeeWed9v6lINsBS3PhmF+/4fKbdfNZTA=
 export PEER2_KEY=UGyzBpReHMheRGbwr5vFJ1Yu8Xkkbn5ub3F8w22y3HA=
 export PEER2_PUB=KlVx32ZygXCBRK2X7ko9qF5FCVfNACzKoAglNnbt1m4=
 
+PEER1_LOG=peer1.log
+PEER2_LOG=peer2.log
+
 PIDS=()
 
 cleanup() {
@@ -27,12 +30,12 @@ cleanup() {
 trap cleanup EXIT
 
 run_for_macos() {
-  ./wiretun-peer1 &> ./run.log &
+  ./wiretun-peer1 &> ${PEER1_LOG} &
   PEER1_PID=$!
   PIDS+=(${PEER1_PID})
   echo "Peer1 PID: ${PEER1_PID}"
 
-  ./wiretun-peer2 &> ./run.log &
+  ./wiretun-peer2 &> ${PEER2_LOG} &
   PEER2_PID=$!
   PIDS+=(${PEER2_PID})
   echo "Peer2 PID: ${PEER2_PID}"
@@ -50,12 +53,12 @@ run_for_macos() {
 }
 
 run_for_linux() {
-  ./wiretun-peer1 &> ./run.log &
+  ./wiretun-peer1 &> ${PEER1_LOG} &
   PEER1_PID=$!
   PIDS+=(${PEER1_PID})
   echo "Peer1 PID: ${PEER1_PID}"
 
-  ./wiretun-peer2 &> ./run.log &
+  ./wiretun-peer2 &> ${PEER2_LOG} &
   PEER2_PID=$!
   PIDS+=(${PEER2_PID})
   echo "Peer2 PID: ${PEER2_PID}"

@@ -1,8 +1,10 @@
 use std::error::Error;
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use rand_core::{OsRng, RngCore};
 use tokio::net::UdpSocket;
+use tokio::time;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -28,7 +30,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
         info!("[{i}/500] Receiving packet...");
         let mut input = [0u8; 1024 + 100];
-        let (len, addr) = socket.recv_from(&mut input).await?;
+        let (len, addr) = time::timeout(Duration::from_secs(2), socket.recv_from(&mut input))
+            .await
+            .expect("recv packet in 2 secs")?;
 
         info!("[{i}/500] Comparing packet...");
         assert_eq!(addr, remote_addr);
