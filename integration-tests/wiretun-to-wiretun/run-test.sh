@@ -35,6 +35,8 @@ run_for_macos() {
   PIDS+=(${PEER1_PID})
   echo "Peer1 PID: ${PEER1_PID}"
 
+  sleep 2
+
   ./wiretun-peer2 &> ${PEER2_LOG} &
   PEER2_PID=$!
   PIDS+=(${PEER2_PID})
@@ -58,13 +60,15 @@ run_for_linux() {
   PIDS+=(${PEER1_PID})
   echo "Peer1 PID: ${PEER1_PID}"
 
+  sleep 2
+
   ./wiretun-peer2 &> ${PEER2_LOG} &
   PEER2_PID=$!
   PIDS+=(${PEER2_PID})
   echo "Peer2 PID: ${PEER2_PID}"
 
   # wait for peer1 and peer2 to start
-  sleep 5
+  sleep 10
   # setup route and interface
   ip -4 address add 10.0.0.1/32 dev ${TUN_NAME}
   ip link set mtu 1420 up dev ${TUN_NAME}
