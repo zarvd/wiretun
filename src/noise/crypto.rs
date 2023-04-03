@@ -87,7 +87,7 @@ impl PeerStaticSecret {
 
 #[inline]
 pub fn gen_ephemeral_key() -> (EphermealPrivateKey, PublicKey) {
-    let secret = EphermealPrivateKey::new(OsRng);
+    let secret = EphermealPrivateKey::random_from_rng(OsRng);
     let public = PublicKey::from(&secret);
     (secret, public)
 }
