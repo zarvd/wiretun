@@ -5,6 +5,7 @@ use libc::{__c_anonymous_ifr_ifru, c_char, ifreq};
 use nix::fcntl::{fcntl, FcntlArg, OFlag};
 use nix::sys::socket::{socket, AddressFamily, SockFlag, SockType};
 use nix::{ioctl_read_bad, ioctl_write_ptr_bad};
+use tracing::debug;
 
 use crate::tun::Error;
 
@@ -22,9 +23,8 @@ pub fn new_ifreq(name: &str) -> ifreq {
 
 pub fn set_nonblocking(fd: RawFd) -> Result<(), Error> {
     let flag = fcntl(fd, FcntlArg::F_GETFL)
-        .map(OFlag::from_bits)
-        .map_err(Error::Sys)?
-        .unwrap();
+        .map(|flag| unsafe { OFlag::from_bits_unchecked(flag) })
+        .map_err(Error::Sys)?;
     let flag = OFlag::O_NONBLOCK | flag;
     fcntl(fd, FcntlArg::F_SETFL(flag)).map_err(Error::Sys)?;
     Ok(())

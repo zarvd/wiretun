@@ -10,7 +10,7 @@ use nix::sys::stat::Mode;
 use tokio::io::unix::AsyncFd;
 use tracing::debug;
 
-use crate::tun::linux::sys::{get_mtu, ioctl_tun_set_iff, new_ifreq, set_mtu};
+use crate::tun::linux::sys::{get_mtu, ioctl_tun_set_iff, new_ifreq, set_mtu, set_nonblocking};
 use crate::tun::Error;
 use crate::Tun;
 
@@ -38,6 +38,7 @@ impl NativeTun {
         let _ = IFF_VNET_HDR; // TODO: enable
 
         unsafe { ioctl_tun_set_iff(fd.as_raw_fd(), &ifr) }?;
+        set_nonblocking(fd.as_raw_fd())?;
 
         Ok(Self {
             fd: Arc::new(AsyncFd::new(fd)?),
