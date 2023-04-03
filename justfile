@@ -12,7 +12,9 @@ unit-test:
 # Run integration tests against the current platform (Require sudo)
 integration-test:
     #!/usr/bin/env bash
+    set -e
     pushd integration-tests/wiretun-to-wiretun
+    ./build.sh
     sudo ./run-test.sh
     popd
 
