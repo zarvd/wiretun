@@ -31,11 +31,6 @@ impl Timestamp {
     pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
-
-    #[inline(always)]
-    pub fn to_bytes(&self) -> [u8; 12] {
-        self.0
-    }
 }
 
 impl From<[u8; 12]> for Timestamp {

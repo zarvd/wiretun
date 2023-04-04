@@ -8,15 +8,12 @@ use super::Cidr;
 /// # Examples
 ///
 /// ```
-/// use wiretun::{Cidr, DeviceConfig, PeerConfig};
+/// use wiretun::{DeviceConfig, PeerConfig, Cidr};
 ///
-/// fn main() {
-///     let cfg = DeviceConfig::default()
-///         .listen_port(40001)
-///         .private_key([0; 32])
-///         .peer(PeerConfig::default().public_key([0; 32]).allowed_ip(""));
-/// }
-///
+/// let cfg = DeviceConfig::default()
+///     .listen_port(40001)
+///     .private_key([0; 32])
+///     .peer(PeerConfig::default().public_key([0; 32]).allowed_ip("10.0.0.0/24".parse::<Cidr>().unwrap()));
 /// ```
 #[derive(Default, Clone)]
 pub struct DeviceConfig {

@@ -21,11 +21,13 @@ mod tests {
 
     #[inline]
     fn gen_2_static_key() -> (PeerStaticSecret, PeerStaticSecret) {
-        let p1_local = LocalStaticSecret::new(x25519_dalek::StaticSecret::new(OsRng).to_bytes());
-        let p2_local = LocalStaticSecret::new(x25519_dalek::StaticSecret::new(OsRng).to_bytes());
+        let p1_local =
+            LocalStaticSecret::new(x25519_dalek::StaticSecret::random_from_rng(OsRng).to_bytes());
+        let p2_local =
+            LocalStaticSecret::new(x25519_dalek::StaticSecret::random_from_rng(OsRng).to_bytes());
         let mut p1_secret = p1_local.clone().with_peer(p2_local.public_key().to_bytes());
         let mut p2_secret = p2_local.with_peer(p1_local.public_key().to_bytes());
-        let psk = x25519_dalek::StaticSecret::new(OsRng).to_bytes();
+        let psk = x25519_dalek::StaticSecret::random_from_rng(OsRng).to_bytes();
         p1_secret.set_psk(psk);
         p2_secret.set_psk(psk);
 
