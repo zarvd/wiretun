@@ -3,9 +3,15 @@ use std::os::fd::RawFd;
 use std::{io, mem, ptr};
 
 use libc::*;
+use nix::fcntl::{fcntl, FcntlArg, OFlag};
+use nix::{ioctl_read_bad, ioctl_write_ptr_bad};
+
+use crate::tun::Error;
 
 pub const SIOCSIFMTU: u64 = 0x80206934;
 pub const SIOCGIFMTU: u64 = 0xc0206933;
+ioctl_read_bad!(ioctl_get_mtu, SIOCGIFMTU, ifreq);
+ioctl_write_ptr_bad!(ioctl_set_mtu, SIOCSIFMTU, ifreq);
 
 pub const CTRL_NAME: [c_char; MAX_KCTL_NAME] = [
     b'c' as _, b'o' as _, b'm' as _, b'.' as _, b'a' as _, b'p' as _, b'p' as _, b'l' as _,
@@ -85,14 +91,13 @@ impl ifreq {
     }
 }
 
-pub unsafe fn set_nonblocking(fd: RawFd) -> Result<(), io::Error> {
-    match unsafe { libc::fcntl(fd, libc::F_GETFL) } {
-        -1 => Err(io::Error::last_os_error()),
-        flags => match unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } {
-            -1 => Err(io::Error::last_os_error()),
-            _ => Ok(()),
-        },
-    }
+pub fn set_nonblocking(fd: RawFd) -> Result<(), Error> {
+    let flag = fcntl(fd, FcntlArg::F_GETFL)
+        .map(|flag| unsafe { OFlag::from_bits_unchecked(flag) })
+        .map_err(Error::Sys)?;
+    let flag = OFlag::O_NONBLOCK | flag;
+    fcntl(fd, FcntlArg::F_SETFL(flag)).map_err(Error::Sys)?;
+    Ok(())
 }
 
 pub unsafe fn get_iface_name(fd: RawFd) -> Result<String, io::Error> {

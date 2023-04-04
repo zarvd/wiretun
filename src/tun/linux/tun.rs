@@ -10,7 +10,7 @@ use nix::sys::stat::Mode;
 use tokio::io::unix::AsyncFd;
 use tracing::debug;
 
-use crate::tun::linux::sys::{get_mtu, ioctl_tun_set_iff, new_ifreq, set_mtu, set_nonblocking};
+use crate::tun::linux::sys::{self, get_mtu, ioctl_tun_set_iff, set_mtu, set_nonblocking};
 use crate::tun::Error;
 use crate::Tun;
 
@@ -31,7 +31,7 @@ impl NativeTun {
             .map(|fd| unsafe { OwnedFd::from_raw_fd(fd) })
             .map_err(Error::Sys)?;
 
-        let mut ifr = new_ifreq(name);
+        let mut ifr = sys::new_ifreq(name);
         ifr.ifr_ifru = __c_anonymous_ifr_ifru {
             ifru_flags: (IFF_TUN | IFF_NO_PI) as _,
         };

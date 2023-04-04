@@ -195,6 +195,7 @@ impl fmt::Debug for NonceFilter {
 pub(super) struct Sessions {
     mgr: SessionManager,
     secret: PeerStaticSecret,
+    uninit: Option<Session>,
     previous: Option<Session>,
     current: Option<Session>,
     next: Option<Session>,
@@ -205,6 +206,7 @@ impl Sessions {
         Self {
             secret,
             mgr,
+            uninit: None,
             previous: None,
             current: None,
             next: None,
@@ -215,11 +217,38 @@ impl Sessions {
         self.current.clone()
     }
 
-    /// Prepare the next session.
-    pub fn prepare_next(&mut self, next: Session) {
-        self.deactive_next();
-        self.activiate(&next);
-        self.next = Some(next);
+    /// Initiator prepares a half-initialized session.
+    pub fn prepare_uninit(&mut self, session: Session) {
+        if let Some(uninit) = self.uninit.take() {
+            self.deactivate(&uninit);
+        }
+        self.activate(&session);
+        self.uninit = Some(session);
+    }
+
+    /// Initiator completes the half-initialized session.
+    pub fn complete_uninit(&mut self, session: Session) -> bool {
+        match self.uninit.as_ref() {
+            Some(uninit) if uninit.sender_index == session.sender_index => {
+                self.deactivate(&uninit);
+                self.activate(&session);
+                self.deactive_previous();
+                self.previous = self.current.take();
+                self.current = Some(session);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Responder prepares the next session.
+    pub fn prepare_next(&mut self, session: Session) {
+        if let Some(next) = self.next.take() {
+            self.deactive_previous();
+            self.previous = Some(next);
+        }
+        self.activate(&session);
+        self.next = Some(session);
     }
 
     /// Rotate with the given session and clear the next session.
@@ -227,7 +256,7 @@ impl Sessions {
         self.deactive_previous();
         self.deactive_next();
 
-        self.activiate(&session);
+        self.activate(&session);
         self.previous = self.current.take();
         self.current = Some(session);
     }
@@ -258,13 +287,21 @@ impl Sessions {
     }
 
     #[inline]
-    fn activiate(&self, session: &Session) {
+    fn activate(&self, session: &Session) {
+        debug!(
+            "activate session: {} / {}",
+            session.sender_index, session.receiver_index
+        );
         self.mgr
             .insert(session.clone(), self.secret.public_key().to_bytes());
     }
 
     #[inline]
     fn deactivate(&self, session: &Session) {
+        debug!(
+            "deactivate session: {} / {}",
+            session.sender_index, session.receiver_index
+        );
         self.mgr.remove(session);
     }
 }

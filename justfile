@@ -14,7 +14,12 @@ integration-test:
     #!/usr/bin/env bash
     set -e
     pushd integration-tests/wiretun-to-wiretun
-    ./build.sh
+    ./pre-test.sh
+    sudo ./run-test.sh
+    popd
+
+    pushd integration-tests/native-tun
+    ./pre-test.sh
     sudo ./run-test.sh
     popd
 

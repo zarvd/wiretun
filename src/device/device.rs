@@ -401,7 +401,7 @@ where
                     _ => unreachable!(),
                 }
             } else {
-                warn!("received message for unknown peer {receiver_index}");
+                warn!("received message from unknown peer [index={receiver_index}]");
             }
         }
         Err(e) => {

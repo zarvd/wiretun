@@ -71,7 +71,7 @@ impl NativeTun {
             return Err(io::Error::last_os_error().into());
         }
 
-        unsafe { sys::set_nonblocking(fd.as_raw_fd())? };
+        sys::set_nonblocking(fd.as_raw_fd())?;
 
         let name = unsafe { sys::get_iface_name(fd.as_raw_fd()) }?;
         let fd = Arc::new(AsyncFd::new(fd)?);
@@ -89,18 +89,15 @@ impl Tun for NativeTun {
     fn set_mtu(&self, mtu: u16) -> Result<(), Error> {
         let mut req = sys::ifreq::new(&self.name);
         req.ifru.mtu = mtu as _;
-        if unsafe { libc::ioctl(self.fd.as_raw_fd(), sys::SIOCSIFMTU, &req) } < 0 {
-            return Err(io::Error::last_os_error().into());
-        }
+        unsafe { sys::ioctl_set_mtu(self.fd.as_raw_fd(), &req) }?;
 
         Ok(())
     }
 
     fn mtu(&self) -> Result<u16, Error> {
-        let req = sys::ifreq::new(&self.name);
-        if unsafe { libc::ioctl(self.fd.as_raw_fd(), sys::SIOCGIFMTU, &req) } < 0 {
-            return Err(io::Error::last_os_error().into());
-        }
+        let mut req = sys::ifreq::new(&self.name);
+
+        unsafe { sys::ioctl_get_mtu(self.fd.as_raw_fd(), &mut req) }?;
 
         Ok(unsafe { req.ifru.mtu as _ })
     }
