@@ -5,7 +5,6 @@ use libc::{__c_anonymous_ifr_ifru, c_char, ifreq};
 use nix::fcntl::{fcntl, FcntlArg, OFlag};
 use nix::sys::socket::{socket, AddressFamily, SockFlag, SockType};
 use nix::{ioctl_read_bad, ioctl_write_ptr_bad};
-use tracing::debug;
 
 use crate::tun::Error;
 
@@ -28,14 +27,6 @@ pub fn set_nonblocking(fd: RawFd) -> Result<(), Error> {
     let flag = OFlag::O_NONBLOCK | flag;
     fcntl(fd, FcntlArg::F_SETFL(flag)).map_err(Error::Sys)?;
     Ok(())
-}
-
-pub fn get_iface_name(fd: RawFd) -> Result<String, Error> {
-    let mut ifr: ifreq = unsafe { mem::zeroed() };
-    unsafe { ioctl_tun_get_iff(fd, &mut ifr) }.map_err(Error::Sys)?;
-
-    let name = unsafe { String::from_utf8_unchecked(ifr.ifr_name.map(|c| c as u8).to_vec()) };
-    Ok(name)
 }
 
 pub fn set_mtu(name: &str, mtu: u16) -> Result<(), Error> {
