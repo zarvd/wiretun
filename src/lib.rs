@@ -1,6 +1,6 @@
 #![deny(
+    warnings,
     rust_2018_idioms,
-    unused_must_use,
     clippy::dbg_macro,
     clippy::enum_glob_use,
     clippy::get_unwrap,

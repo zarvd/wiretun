@@ -5,7 +5,7 @@ use std::str::FromStr;
 use ip_network::IpNetwork;
 use ip_network_table::IpNetworkTable;
 
-fn max_mask_for_ip(ip: &IpAddr) -> u8 {
+const fn max_mask_for_ip(ip: &IpAddr) -> u8 {
     match ip {
         IpAddr::V4(_) => 32,
         IpAddr::V6(_) => 128,

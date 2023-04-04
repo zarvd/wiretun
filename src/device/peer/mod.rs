@@ -239,7 +239,7 @@ where
     /// Send keepalive packet to the peer if the traffic is idle.
     #[inline]
     pub async fn keepalive(&self) {
-        if !self.monitor.traffic().can_keepalive() {
+        if !self.monitor.can_keepalive() {
             return;
         }
         self.outbound
@@ -296,7 +296,7 @@ where
 {
     debug!("starting handshake loop for peer {inner}");
     while inner.running.load(atomic::Ordering::Relaxed) {
-        if inner.monitor.handshake().can_initiation() {
+        if inner.monitor.can_handshake() {
             info!("initiating handshake");
             let packet = {
                 let (next, packet) = inner.handshake.write().unwrap().initiate();
@@ -308,7 +308,7 @@ where
             inner.send_outbound(&packet).await; // send directly
             inner.monitor.handshake().initiated();
         }
-        time::sleep_until(inner.monitor.handshake().initiation_at().into()).await;
+        time::sleep_until(inner.monitor.handshake().will_initiate_in().into()).await;
     }
     debug!("exiting handshake loop for peer {inner}")
 }

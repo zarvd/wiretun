@@ -23,13 +23,12 @@ use tracing::{debug, error, warn};
 
 use crate::noise::crypto::LocalStaticSecret;
 use crate::noise::handshake::{Cookie, IncomingInitiation};
+use crate::noise::protocol;
 use crate::noise::protocol::Message;
 use crate::Tun;
 use outbound::{Endpoint, Listener};
 use peer::Peers;
 use rate_limiter::RateLimiter;
-
-const MAX_PEERS: usize = 1 << 16;
 
 struct Inner<T>
 where
@@ -409,6 +408,11 @@ where
                         peer.handle_cookie_reply(endpoint, p, session).await;
                     }
                     Message::TransportData(p) => {
+                        if p.counter > protocol::REJECT_AFTER_MESSAGES {
+                            warn!("received too many messages from peer [index={receiver_index}]");
+                            return;
+                        }
+
                         peer.handle_transport_data(endpoint, p, session).await;
                     }
                     _ => unreachable!(),
