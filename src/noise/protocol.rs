@@ -4,9 +4,9 @@ const MESSAGE_TYPE_HANDSHAKE_INITIATION: u8 = 1u8;
 const MESSAGE_TYPE_HANDSHAKE_RESPONSE: u8 = 2u8;
 const MESSAGE_TYPE_COOKIE_REPLY: u8 = 3u8;
 const MESSAGE_TYPE_TRANSPORT_DATA: u8 = 4u8;
-const HANDSHAKE_INITIATION_PACKET_SIZE: usize = 148;
-const HANDSHAKE_RESPONSE_PACKET_SIZE: usize = 92;
-const COOKIE_REPLY_PACKET_SIZE: usize = 64;
+pub const HANDSHAKE_INITIATION_PACKET_SIZE: usize = 148;
+pub const HANDSHAKE_RESPONSE_PACKET_SIZE: usize = 92;
+pub const COOKIE_REPLY_PACKET_SIZE: usize = 64;
 
 const MIN_PACKET_SIZE: usize = 4; // TODO
 
@@ -123,6 +123,13 @@ pub struct TransportData {
     pub receiver_index: u32,
     pub counter: u64,
     pub payload: Vec<u8>,
+}
+
+impl TransportData {
+    #[inline]
+    pub fn packet_len(&self) -> usize {
+        self.payload.len() + 16
+    }
 }
 
 impl TransportData {

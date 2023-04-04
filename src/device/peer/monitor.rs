@@ -109,6 +109,13 @@ impl TrafficMonitor {
         self.tx_messages.fetch_add(1, Ordering::Relaxed);
         self.tx_bytes.fetch_add(n, Ordering::Relaxed);
     }
+
+    #[inline]
+    pub fn inbound(&self, bytes: usize) {
+        let n = bytes as _;
+        self.rx_messages.fetch_add(1, Ordering::Relaxed);
+        self.rx_bytes.fetch_add(n, Ordering::Relaxed);
+    }
 }
 
 pub(super) struct PeerMonitor {
