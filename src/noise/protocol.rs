@@ -8,6 +8,8 @@ pub const HANDSHAKE_INITIATION_PACKET_SIZE: usize = 148;
 pub const HANDSHAKE_RESPONSE_PACKET_SIZE: usize = 92;
 pub const COOKIE_REPLY_PACKET_SIZE: usize = 64;
 
+pub const REJECT_AFTER_MESSAGES: u64 = u64::MAX - (1 << 13);
+
 const MIN_PACKET_SIZE: usize = 4; // TODO
 
 use super::Error;

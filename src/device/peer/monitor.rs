@@ -4,7 +4,6 @@ use std::time::{Duration, Instant, SystemTime};
 use crate::device::time::{AtomicInstant, AtomicTimestamp};
 
 const REKEY_AFTER_MESSAGES: u64 = 1 << 60;
-const REJECT_AFTER_MESSAGES: u64 = u64::MAX - (1 << 13);
 const REKEY_AFTER_TIME: Duration = Duration::from_secs(120);
 const REJECT_AFTER_TIME: Duration = Duration::from_secs(180);
 const REKEY_ATTEMPT_TIME: Duration = Duration::from_secs(90);
@@ -30,29 +29,12 @@ impl HandshakeMonitor {
     }
 
     #[inline]
-    pub fn can_initiation(&self) -> bool {
-        if self.last_complete_at.elapsed() < REKEY_AFTER_TIME {
-            // An active session exists
-            return false;
-        }
-
-        if self
-            .attempt_before
-            .before(self.last_complete_at.to_std() + REKEY_AFTER_TIME)
-        {
-            self.reset_attempt();
-        }
-
-        self.last_attempt_at.elapsed() >= REKEY_TIMEOUT
-    }
-
-    #[inline]
     pub fn initiated(&self) {
         self.last_attempt_at.set_now();
     }
 
     #[inline]
-    pub fn initiation_at(&self) -> Instant {
+    pub fn will_initiate_in(&self) -> Instant {
         if self.is_max_attempt() || self.last_complete_at.elapsed() < REKEY_AFTER_TIME {
             return Instant::now() + REKEY_TIMEOUT;
         }
@@ -98,11 +80,6 @@ impl TrafficMonitor {
     }
 
     #[inline]
-    pub fn can_keepalive(&self) -> bool {
-        self.last_sent_at.elapsed() >= KEEPALIVE_TIMEOUT
-    }
-
-    #[inline]
     pub fn outbound(&self, bytes: usize) {
         let n = bytes as _;
         self.last_sent_at.set_now();
@@ -129,6 +106,33 @@ impl PeerMonitor {
             handshake: HandshakeMonitor::new(),
             traffic: TrafficMonitor::new(),
         }
+    }
+
+    #[inline]
+    pub fn can_keepalive(&self) -> bool {
+        self.traffic.last_sent_at.elapsed() >= KEEPALIVE_TIMEOUT
+    }
+
+    #[inline]
+    pub fn can_handshake(&self) -> bool {
+        if self.traffic.tx_messages.load(Ordering::Relaxed) >= REKEY_AFTER_MESSAGES {
+            return true;
+        }
+
+        if self.handshake.last_complete_at.elapsed() < REKEY_AFTER_TIME {
+            // An active session exists
+            return false;
+        }
+
+        if self
+            .handshake
+            .attempt_before
+            .before(self.handshake.last_complete_at.to_std() + REKEY_AFTER_TIME)
+        {
+            self.handshake.reset_attempt();
+        }
+
+        self.handshake.last_attempt_at.elapsed() >= REKEY_TIMEOUT
     }
 
     #[inline]
