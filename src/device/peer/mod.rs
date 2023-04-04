@@ -23,7 +23,10 @@ use crate::noise::crypto;
 use crate::noise::crypto::PeerStaticSecret;
 use crate::noise::handshake::IncomingInitiation;
 use crate::noise::protocol;
-use crate::noise::protocol::{CookieReply, HandshakeResponse, TransportData};
+use crate::noise::protocol::{
+    CookieReply, HandshakeResponse, TransportData, COOKIE_REPLY_PACKET_SIZE,
+    HANDSHAKE_RESPONSE_PACKET_SIZE,
+};
 use crate::Tun;
 use handshake::Handshake;
 use monitor::PeerMonitor;
@@ -397,6 +400,10 @@ async fn handle_handshake_initiation<T>(
 ) where
     T: Tun + 'static,
 {
+    inner
+        .monitor
+        .traffic()
+        .inbound(protocol::HANDSHAKE_INITIATION_PACKET_SIZE);
     let ret = {
         let mut handshake = inner.handshake.write().unwrap();
         handshake.respond(&initiation)
@@ -423,6 +430,10 @@ async fn handle_handshake_response<T>(
 ) where
     T: Tun + 'static,
 {
+    inner
+        .monitor
+        .traffic()
+        .inbound(HANDSHAKE_RESPONSE_PACKET_SIZE);
     let ret = {
         let mut handshake = inner.handshake.write().unwrap();
         handshake.finalize(&packet)
@@ -448,13 +459,14 @@ async fn handle_handshake_response<T>(
 }
 
 async fn handle_cookie_reply<T>(
-    _inner: Arc<Inner<T>>,
+    inner: Arc<Inner<T>>,
     _endpoint: Endpoint,
     _packet: CookieReply,
     _session: Session,
 ) where
     T: Tun + 'static,
 {
+    inner.monitor.traffic().inbound(COOKIE_REPLY_PACKET_SIZE);
 }
 
 async fn handle_transport_data<T>(
@@ -465,6 +477,7 @@ async fn handle_transport_data<T>(
 ) where
     T: Tun + 'static,
 {
+    inner.monitor.traffic().inbound(packet.packet_len());
     {
         let mut sessions = inner.sessions.write().unwrap();
         if sessions.complete_next(session.clone()) {
