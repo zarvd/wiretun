@@ -1,5 +1,11 @@
-#![allow(dead_code)] // FIXME: should be removed
-#![allow(clippy::module_inception, clippy::needless_doctest_main)]
+#![deny(
+    rust_2018_idioms,
+    unused_must_use,
+    clippy::dbg_macro,
+    clippy::enum_glob_use,
+    clippy::get_unwrap,
+    clippy::macro_use_imports
+)]
 
 //! # WireTun
 //!
@@ -18,19 +24,18 @@
 //! # Examples
 //!
 //! ```no_run
-//! use wiretun::{Cidr, Device, DeviceConfig, PeerConfig, uapi};
+//! use wiretun::{Cidr, Device, DeviceConfig, PeerConfig};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!    let cfg = DeviceConfig::default()
 //!        .listen_port(40001);
 //!    let device = Device::native("utun88", cfg).await?;
-//!    uapi::bind_and_handle(device.handle()).await?;
 //!    Ok(())
 //! }
 
 mod device;
-mod noise;
+pub mod noise;
 mod tun;
 
 pub use device::{Cidr, Device, DeviceConfig, DeviceHandle, ParseCidrError, PeerConfig};

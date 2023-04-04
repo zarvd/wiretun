@@ -8,6 +8,7 @@ build:
 # Run unit tests against the current platform
 unit-test:
     cargo nextest run
+    cargo test --doc
 
 # Run integration tests against the current platform (Require sudo)
 integration-test:

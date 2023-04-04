@@ -4,6 +4,7 @@ use std::fmt::{Debug, Formatter};
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
+
 use tracing::debug;
 
 use crate::device::Error;
@@ -86,6 +87,7 @@ impl Debug for Session {
         f.debug_struct("Session")
             .field("sender_index", &self.sender_index)
             .field("receiver_index", &self.receiver_index)
+            .field("created_at", &self.created_at)
             .finish()
     }
 }
@@ -227,12 +229,14 @@ impl Sessions {
     }
 
     /// Initiator completes the half-initialized session.
+    /// Returns true if the given session is the half-initialized session.
     pub fn complete_uninit(&mut self, session: Session) -> bool {
         match self.uninit.as_ref() {
             Some(uninit) if uninit.sender_index == session.sender_index => {
-                self.deactivate(&uninit);
+                self.deactivate_uninit();
+
                 self.activate(&session);
-                self.deactive_previous();
+                self.deactivate_previous();
                 self.previous = self.current.take();
                 self.current = Some(session);
                 true
@@ -244,43 +248,46 @@ impl Sessions {
     /// Responder prepares the next session.
     pub fn prepare_next(&mut self, session: Session) {
         if let Some(next) = self.next.take() {
-            self.deactive_previous();
+            self.deactivate_previous();
             self.previous = Some(next);
         }
         self.activate(&session);
         self.next = Some(session);
     }
 
-    /// Rotate with the given session and clear the next session.
-    pub fn rotate(&mut self, session: Session) {
-        self.deactive_previous();
-        self.deactive_next();
-
-        self.activate(&session);
-        self.previous = self.current.take();
-        self.current = Some(session);
-    }
-
+    /// Responder completes the next session.
     /// Returns true if the given session is the next session.
-    pub fn try_rotate(&mut self, session: Session) -> bool {
-        if let Some(next) = self.next.as_ref() {
-            if session.sender_index == next.sender_index {
-                self.rotate(session);
-                return true;
+    pub fn complete_next(&mut self, session: Session) -> bool {
+        match self.next.as_ref() {
+            Some(next) if next.sender_index == session.sender_index => {
+                self.deactivate_next();
+                self.deactivate_previous();
+
+                self.activate(&session);
+                self.previous = self.current.take();
+                self.current = Some(session);
+                true
             }
+            _ => false,
         }
-        false
     }
 
     #[inline]
-    fn deactive_previous(&mut self) {
+    fn deactivate_uninit(&mut self) {
+        if let Some(unint) = self.uninit.take() {
+            self.deactivate(&unint);
+        }
+    }
+
+    #[inline]
+    fn deactivate_previous(&mut self) {
         if let Some(previous) = self.previous.take() {
             self.deactivate(&previous);
         }
     }
 
     #[inline]
-    fn deactive_next(&mut self) {
+    fn deactivate_next(&mut self) {
         if let Some(next) = self.next.take() {
             self.deactivate(&next);
         }

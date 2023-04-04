@@ -103,11 +103,6 @@ impl TrafficMonitor {
     }
 
     #[inline]
-    pub fn keepalive_at(&self) -> Instant {
-        self.last_sent_at.to_std() + KEEPALIVE_TIMEOUT
-    }
-
-    #[inline]
     pub fn outbound(&self, bytes: usize) {
         let n = bytes as _;
         self.last_sent_at.set_now();

@@ -26,11 +26,6 @@ impl AtomicTimestamp {
     }
 
     #[inline(always)]
-    pub fn now() -> Self {
-        Self::from_std(SystemTime::now())
-    }
-
-    #[inline(always)]
     pub fn set_now(&self) {
         let now = SystemTime::UNIX_EPOCH.elapsed().expect("fetch system time");
         self.secs.store(now.as_secs(), Ordering::Relaxed);
@@ -91,6 +86,7 @@ impl AtomicInstant {
     }
 
     #[inline(always)]
+    #[allow(unused)]
     pub fn after(&self, other: Instant) -> bool {
         self.to_std() > other
     }
