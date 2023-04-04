@@ -10,50 +10,6 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  unit-test:
-    name: Unit test
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
-      - name: Install rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          components: clippy
-          override: true
-      - name: Install cargo-nextest
-        uses: baptiste0928/cargo-install@v1
-        with:
-          crate: cargo-nextest
-          locked: true
-      - name: Run tests
-        run: |
-          cargo nextest run
-
-  integration-test:
-    name: Integration test
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
-      - name: Install rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          components: clippy
-          override: true
-      - name: Install just
-        uses: extractions/setup-just@v1
-      - name: Run tests
-        run: |
-          just integration-test
-
   lint:
     name: Coding style check
     runs-on: ubuntu-latest
@@ -76,3 +32,49 @@ jobs:
       - name: Run cargo clippy
         run: |
           cargo clippy
+
+  unit-test:
+    name: Unit test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+      - name: Install rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          components: clippy
+          override: true
+      - name: Install just
+        uses: extractions/setup-just@v1
+      - name: Install cargo-nextest
+        uses: baptiste0928/cargo-install@v1
+        with:
+          crate: cargo-nextest
+          locked: true
+      - name: Run tests
+        run: |
+          just unit-test
+
+  integration-test:
+    name: Integration test
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+      - name: Install rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          components: clippy
+          override: true
+      - name: Install just
+        uses: extractions/setup-just@v1
+      - name: Run tests
+        run: |
+          just integration-test
