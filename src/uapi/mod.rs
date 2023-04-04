@@ -126,6 +126,7 @@ where
             }
             Err(e) => {
                 debug!("UAPI connection error: {}", e);
+                conn.write(Response::Err).await;
                 break;
             }
         }

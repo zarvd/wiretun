@@ -40,7 +40,7 @@ pub fn set_mtu(name: &str, mtu: u16) -> Result<(), Error> {
     .map_err(Error::Sys)?;
     let mut ifr = new_ifreq(name);
     ifr.ifr_ifru = __c_anonymous_ifr_ifru { ifru_mtu: mtu as _ };
-    unsafe { ioctl_set_mtu(fd.as_raw_fd(), &mut ifr) }.map_err(Error::Sys)?;
+    unsafe { ioctl_set_mtu(fd.as_raw_fd(), &ifr) }.map_err(Error::Sys)?;
     Ok(())
 }
 
