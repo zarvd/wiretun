@@ -254,7 +254,7 @@ where
             let packet = {
                 let (next, packet) = inner.handshake.write().unwrap().initiate();
                 let mut sessions = inner.sessions.write().unwrap();
-                sessions.prepare_next(next);
+                sessions.prepare_uninit(next);
                 packet
             };
 
@@ -365,6 +365,7 @@ async fn handle_handshake_initiation<T>(
             }
             inner.update_endpoint(endpoint.clone());
             endpoint.send(&packet).await.unwrap();
+            inner.monitor.handshake().initiated();
         }
         Err(e) => debug!("failed to respond to handshake initiation: {e}"),
     }
@@ -384,14 +385,19 @@ async fn handle_handshake_response<T>(
     };
     match ret {
         Ok(session) => {
-            {
+            let ret = {
                 let mut sessions = inner.sessions.write().unwrap();
-                sessions.rotate(session);
+                sessions.complete_uninit(session)
+            };
+            if !ret {
+                debug!("failed to complete handshake, session not found");
+                return;
             }
+
             inner.monitor.handshake().completed();
             info!("handshake completed");
             inner.update_endpoint(endpoint);
-            inner.keepalive().await; // let the peer know the session is valid
+            inner.stage_outbound(OutboundEvent::Data(vec![])).await; // let the peer know the session is valid
         }
         Err(e) => debug!("failed to finalize handshake: {e}"),
     }
