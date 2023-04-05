@@ -42,7 +42,7 @@ impl NativeTun {
 
         Ok(Self {
             fd: Arc::new(AsyncFd::new(fd)?),
-            name: name.to_string(),
+            name: name.to_owned(),
         })
     }
 }

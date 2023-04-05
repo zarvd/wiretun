@@ -26,7 +26,7 @@ use crate::noise::handshake::{Cookie, IncomingInitiation};
 use crate::noise::protocol;
 use crate::noise::protocol::Message;
 use crate::Tun;
-use outbound::{Endpoint, Listener};
+use outbound::{Endpoint, Listener, Listeners};
 use peer::Peers;
 use rate_limiter::RateLimiter;
 
@@ -40,28 +40,27 @@ where
     cfg: Mutex<DeviceConfig>,
     rate_limiter: RateLimiter,
     cookie: Cookie,
-    listener_v4: Listener,
-    listener_v6: Listener,
+    listeners: Listeners,
 }
 
 impl<T> Inner<T>
 where
     T: Tun + 'static,
 {
+    #[inline]
     pub fn metrics(&self) -> DeviceMetrics {
         let peers = self.peers.metrics();
         DeviceMetrics { peers }
     }
 
+    #[inline]
     pub fn config(&self) -> DeviceConfig {
         self.cfg.lock().unwrap().clone()
     }
 
-    pub fn endpoint_for(&self, addr: SocketAddr) -> Endpoint {
-        match addr {
-            SocketAddr::V4(_) => self.listener_v4.endpoint_for(addr),
-            SocketAddr::V6(_) => self.listener_v6.endpoint_for(addr),
-        }
+    #[inline]
+    pub fn endpoint_for(&self, dst: SocketAddr) -> Endpoint {
+        self.listeners.endpoint_for(dst)
     }
 }
 
@@ -106,8 +105,8 @@ where
     pub async fn with_tun(tun: T, mut cfg: DeviceConfig) -> Result<Self, Error> {
         let stop = Arc::new(Notify::new());
 
-        let (listener_v4, listener_v6) = Listener::bind(cfg.listen_port).await?;
-        cfg.listen_port = listener_v4.listening_port(); // update cfg.listen_port in case it was 0
+        let listeners = Listeners::bind(cfg.listen_port).await?;
+        cfg.listen_port = listeners.local_port();
 
         let secret = LocalStaticSecret::new(cfg.private_key);
 
@@ -117,18 +116,17 @@ where
                 peers.insert(
                     p.public_key,
                     p.allowed_ips.clone(),
-                    p.endpoint.map(|addr| match addr {
-                        SocketAddr::V4(_) => listener_v4.endpoint_for(addr),
-                        SocketAddr::V6(_) => listener_v6.endpoint_for(addr),
-                    }),
+                    p.endpoint.map(|addr| listeners.endpoint_for(addr)),
                 );
             });
             peers
         };
 
         let cookie = Cookie::new(&secret);
-
         let rate_limiter = RateLimiter::new(1_000);
+        let listener_v4 = listeners.v4();
+        let listener_v6 = listeners.v6();
+
         let inner = {
             let cfg = Mutex::new(cfg);
             Arc::new(Inner {
@@ -138,8 +136,7 @@ where
                 cfg,
                 cookie,
                 rate_limiter,
-                listener_v4: listener_v4.clone(),
-                listener_v6: listener_v6.clone(),
+                listeners,
             })
         };
         let handles = vec![
