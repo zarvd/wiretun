@@ -1,10 +1,15 @@
 #![deny(
     warnings,
     rust_2018_idioms,
+    clippy::clone_on_ref_ptr,
     clippy::dbg_macro,
     clippy::enum_glob_use,
     clippy::get_unwrap,
-    clippy::macro_use_imports
+    clippy::macro_use_imports,
+    clippy::str_to_string,
+    clippy::inefficient_to_string,
+    clippy::too_many_lines,
+    clippy::or_fun_call
 )]
 
 //! # WireTun

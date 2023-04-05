@@ -11,13 +11,13 @@ use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
 use tracing::{debug, error, info};
 
-#[derive(Clone)]
-pub(super) struct Listener {
-    socket: Arc<UdpSocket>,
+pub(super) struct Listeners {
+    ipv4: Arc<UdpSocket>,
+    ipv6: Arc<UdpSocket>,
 }
 
-impl Listener {
-    pub async fn bind(port: u16) -> Result<(Self, Self), io::Error> {
+impl Listeners {
+    pub async fn bind(port: u16) -> Result<Self, io::Error> {
         loop {
             let ipv4 = {
                 let socket = socket2::Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
@@ -55,25 +55,50 @@ impl Listener {
             };
             info!("Listening on {}", ipv6.local_addr()?);
 
-            return Ok((
-                Self {
-                    socket: Arc::new(ipv4),
-                },
-                Self {
-                    socket: Arc::new(ipv6),
-                },
-            ));
+            return Ok(Self {
+                ipv4: Arc::new(ipv4),
+                ipv6: Arc::new(ipv6),
+            });
         }
     }
 
-    pub fn listening_port(&self) -> u16 {
-        self.socket.local_addr().unwrap().port()
+    #[inline]
+    pub fn v4(&self) -> Listener {
+        Listener {
+            socket: Arc::clone(&self.ipv4),
+        }
     }
 
-    pub fn endpoint_for(&self, dst: SocketAddr) -> Endpoint {
-        let src = self.socket.local_addr().unwrap();
-        Endpoint::new(self.socket.clone(), src, dst)
+    #[inline]
+    pub fn v6(&self) -> Listener {
+        Listener {
+            socket: Arc::clone(&self.ipv6),
+        }
     }
+
+    #[inline]
+    pub fn local_port(&self) -> u16 {
+        self.ipv4
+            .local_addr()
+            .expect("local port must exist")
+            .port()
+    }
+
+    #[inline]
+    pub fn endpoint_for(&self, dst: SocketAddr) -> Endpoint {
+        match dst {
+            SocketAddr::V4(_) => {
+                Endpoint::new(Arc::clone(&self.ipv4), self.ipv4.local_addr().unwrap(), dst)
+            }
+            SocketAddr::V6(_) => {
+                Endpoint::new(Arc::clone(&self.ipv6), self.ipv6.local_addr().unwrap(), dst)
+            }
+        }
+    }
+}
+
+pub(super) struct Listener {
+    socket: Arc<UdpSocket>,
 }
 
 impl Stream for Listener {
@@ -93,7 +118,7 @@ impl Stream for Listener {
         let src = self.socket.local_addr().unwrap();
         debug!("Listener received {} bytes", buf.filled().len());
         Poll::Ready(Some((
-            Endpoint::new(self.socket.clone(), src, dst),
+            Endpoint::new(Arc::clone(&self.socket), src, dst),
             buf.filled().to_vec(),
         )))
     }

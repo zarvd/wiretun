@@ -139,11 +139,3 @@ impl Cookie {
         bytes
     }
 }
-
-#[test]
-fn test() {
-    let x: &[u8] = &[1, 2, 3];
-    let y: [u8; 3] = [1, 2, 3];
-    assert_eq!(x, y);
-    assert!(x == y);
-}
