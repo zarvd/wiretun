@@ -143,10 +143,18 @@ where
             })
         };
         let handles = vec![
-            tokio::spawn(loop_tun_events(inner.clone(), stop.clone())),
-            tokio::spawn(loop_outbound(inner.clone(), stop.clone())),
-            tokio::spawn(loop_inbound(inner.clone(), listener_v4, stop.clone())),
-            tokio::spawn(loop_inbound(inner.clone(), listener_v6, stop.clone())),
+            tokio::spawn(loop_tun_events(Arc::clone(&inner), Arc::clone(&stop))),
+            tokio::spawn(loop_outbound(Arc::clone(&inner), Arc::clone(&stop))),
+            tokio::spawn(loop_inbound(
+                Arc::clone(&inner),
+                listener_v4,
+                Arc::clone(&stop),
+            )),
+            tokio::spawn(loop_inbound(
+                Arc::clone(&inner),
+                listener_v6,
+                Arc::clone(&stop),
+            )),
         ];
 
         Ok(Device {
@@ -159,7 +167,7 @@ where
     #[inline]
     pub fn handle(&self) -> DeviceHandle<T> {
         DeviceHandle {
-            inner: self.inner.clone(),
+            inner: Arc::clone(&self.inner),
         }
     }
 
@@ -325,7 +333,7 @@ where
                 debug!("stopping tun events loop");
                 return;
             }
-            _ = tick_tun_events(inner.clone()) => {}
+            _ = tick_tun_events(Arc::clone(&inner)) => {}
         }
     }
 }
@@ -351,7 +359,7 @@ where
             }
             data = listener.next() => {
                 if let Some((endpoint, payload)) = data {
-                    tick_inbound(inner.clone(), endpoint, payload).await;
+                    tick_inbound(Arc::clone(&inner), endpoint, payload).await;
                 }
             }
         }
@@ -438,7 +446,7 @@ where
                 debug!("stopping inbound loop");
                 return;
             }
-            _ = tick_outbound(inner.clone()) => {}
+            _ = tick_outbound(Arc::clone(&inner)) => {}
         }
     }
 }

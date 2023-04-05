@@ -176,7 +176,7 @@ where
     #[inline]
     pub(super) fn stop(&self) {
         self.inner.running.store(false, atomic::Ordering::SeqCst);
-        let inner = self.inner.clone();
+        let inner = Arc::clone(&self.inner);
         tokio::spawn(async move {
             let _ = inner.inbound.send(InboundEvent::Eof).await;
             let _ = inner.outbound.send(OutboundEvent::Eof).await;
@@ -217,9 +217,9 @@ where
             monitor: PeerMonitor::new(),
         });
 
-        tokio::spawn(loop_handshake(me.clone()));
-        tokio::spawn(loop_inbound(me.clone(), inbound_rx));
-        tokio::spawn(loop_outbound(me.clone(), outbound_rx));
+        tokio::spawn(loop_handshake(Arc::clone(&me)));
+        tokio::spawn(loop_inbound(Arc::clone(&me), inbound_rx));
+        tokio::spawn(loop_outbound(Arc::clone(&me), outbound_rx));
 
         me
     }
@@ -328,7 +328,7 @@ where
             event = rx.recv() => {
                 match event {
                     Some(OutboundEvent::Data(data)) => {
-                        tick_outbound(inner.clone(), data).await;
+                        tick_outbound(Arc::clone(&inner), data).await;
                     }
                     Some(OutboundEvent::Eof) => break,
                     None => break,
@@ -371,22 +371,22 @@ where
             InboundEvent::HanshakeInitiation {
                 endpoint,
                 initiation,
-            } => handle_handshake_initiation(inner.clone(), endpoint, initiation).await,
+            } => handle_handshake_initiation(Arc::clone(&inner), endpoint, initiation).await,
             InboundEvent::HandshakeResponse {
                 endpoint,
                 packet,
                 session,
-            } => handle_handshake_response(inner.clone(), endpoint, packet, session).await,
+            } => handle_handshake_response(Arc::clone(&inner), endpoint, packet, session).await,
             InboundEvent::CookieReply {
                 endpoint,
                 packet,
                 session,
-            } => handle_cookie_reply(inner.clone(), endpoint, packet, session).await,
+            } => handle_cookie_reply(Arc::clone(&inner), endpoint, packet, session).await,
             InboundEvent::TransportData {
                 endpoint,
                 packet,
                 session,
-            } => handle_transport_data(inner.clone(), endpoint, packet, session).await,
+            } => handle_transport_data(Arc::clone(&inner), endpoint, packet, session).await,
             InboundEvent::Eof => break,
         }
     }

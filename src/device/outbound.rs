@@ -72,7 +72,7 @@ impl Listener {
 
     pub fn endpoint_for(&self, dst: SocketAddr) -> Endpoint {
         let src = self.socket.local_addr().unwrap();
-        Endpoint::new(self.socket.clone(), src, dst)
+        Endpoint::new(Arc::clone(&self.socket), src, dst)
     }
 }
 
@@ -93,7 +93,7 @@ impl Stream for Listener {
         let src = self.socket.local_addr().unwrap();
         debug!("Listener received {} bytes", buf.filled().len());
         Poll::Ready(Some((
-            Endpoint::new(self.socket.clone(), src, dst),
+            Endpoint::new(Arc::clone(&self.socket), src, dst),
             buf.filled().to_vec(),
         )))
     }
