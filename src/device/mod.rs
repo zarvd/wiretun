@@ -110,17 +110,14 @@ where
 
         let secret = LocalStaticSecret::new(cfg.private_key);
 
-        let peers = {
-            let peers = Peers::new(tun.clone(), secret.clone());
-            cfg.peers.iter().for_each(|p| {
-                peers.insert(
-                    p.public_key,
-                    p.allowed_ips.clone(),
-                    p.endpoint.map(|addr| listeners.endpoint_for(addr)),
-                );
-            });
-            peers
-        };
+        let peers = Peers::new(tun.clone(), secret.clone());
+        cfg.peers.iter().for_each(|p| {
+            peers.insert(
+                p.public_key,
+                p.allowed_ips.clone(),
+                p.endpoint.map(|addr| listeners.endpoint_for(addr)),
+            );
+        });
 
         let cookie = Cookie::new(&secret);
         let rate_limiter = RateLimiter::new(1_000);

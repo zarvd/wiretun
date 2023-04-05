@@ -97,7 +97,6 @@ impl Listeners {
     }
 }
 
-#[derive(Clone)]
 pub(super) struct Listener {
     socket: Arc<UdpSocket>,
 }
