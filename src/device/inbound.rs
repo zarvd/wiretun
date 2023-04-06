@@ -11,55 +11,60 @@ use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
 use tracing::{debug, error, info};
 
-pub(super) struct Listeners {
-    ipv4: Arc<UdpSocket>,
-    ipv6: Arc<UdpSocket>,
+async fn bind_v4(port: u16) -> Result<UdpSocket, io::Error> {
+    let socket = socket2::Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+    socket.set_nonblocking(true)?;
+    socket.set_reuse_address(true)?;
+    socket.bind(&SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port).into())?;
+    UdpSocket::from_std(std::net::UdpSocket::from(socket))
 }
 
-impl Listeners {
-    pub async fn bind(port: u16) -> Result<Self, io::Error> {
-        loop {
-            let ipv4 = {
-                let socket = socket2::Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
-                socket.set_nonblocking(true)?;
-                socket.set_reuse_address(true)?;
-                socket.bind(&SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port).into())?;
-                UdpSocket::from_std(std::net::UdpSocket::from(socket))?
-            };
-            info!("Listening on {}", ipv4.local_addr()?);
+async fn bind_v6(port: u16) -> Result<UdpSocket, io::Error> {
+    let socket = socket2::Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?;
+    socket.set_only_v6(true)?;
+    socket.set_nonblocking(true)?;
+    socket.set_reuse_address(true)?;
+    socket.bind(&SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, port, 0, 0).into())?;
+    UdpSocket::from_std(std::net::UdpSocket::from(socket))
+}
 
-            let ipv6_socket = {
-                let socket = socket2::Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?;
-                socket.set_only_v6(true)?;
-                socket.set_nonblocking(true)?;
-                socket.set_reuse_address(true)?;
-                socket.bind(
-                    &SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, ipv4.local_addr()?.port(), 0, 0)
-                        .into(),
-                )?;
-                UdpSocket::from_std(std::net::UdpSocket::from(socket))
-            };
-            let ipv6 = match ipv6_socket {
+pub(super) struct Inbound {
+    ipv4: Arc<UdpSocket>,
+    ipv6: Arc<UdpSocket>,
+    port: u16,
+}
+
+impl Inbound {
+    pub async fn bind(port: u16) -> Result<Self, io::Error> {
+        let max_retry = if port == 0 { 10 } else { 1 };
+        let mut err = None;
+        for _ in 0..max_retry {
+            let ipv4 = match bind_v4(port).await {
                 Ok(s) => s,
                 Err(e) => {
-                    if port != 0 {
-                        error!("IPv6 listen port[{port}] already is use, failed to bind");
-                        return Err(e);
-                    }
-                    debug!(
-                        "failed to bind IPv6 socket, will retry with another port: {}",
-                        e
-                    );
+                    err = Some(e);
                     continue;
                 }
             };
+            let port = ipv4.local_addr()?.port();
+            let ipv6 = match bind_v6(port).await {
+                Ok(s) => s,
+                Err(e) => {
+                    err = Some(e);
+                    continue;
+                }
+            };
+            info!("Listening on {}", ipv4.local_addr()?);
             info!("Listening on {}", ipv6.local_addr()?);
 
             return Ok(Self {
                 ipv4: Arc::new(ipv4),
                 ipv6: Arc::new(ipv6),
+                port,
             });
         }
+        error!("Failed to bind to port {}", port);
+        Err(err.unwrap())
     }
 
     #[inline]
@@ -78,10 +83,7 @@ impl Listeners {
 
     #[inline]
     pub fn local_port(&self) -> u16 {
-        self.ipv4
-            .local_addr()
-            .expect("local port must exist")
-            .port()
+        self.port
     }
 
     #[inline]
