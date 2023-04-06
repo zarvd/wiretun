@@ -18,7 +18,7 @@ use tokio::sync::mpsc;
 use tokio::time;
 use tracing::{debug, info, warn};
 
-use crate::device::outbound::Endpoint;
+use crate::device::inbound::Endpoint;
 use crate::noise::crypto;
 use crate::noise::crypto::PeerStaticSecret;
 use crate::noise::handshake::IncomingInitiation;

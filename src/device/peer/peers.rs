@@ -5,7 +5,7 @@ use std::sync::RwLock;
 use super::cidr::{Cidr, CidrTable};
 use super::session::{Session, SessionManager};
 use super::{Peer, PeerMetrics};
-use crate::device::outbound::Endpoint;
+use crate::device::inbound::Endpoint;
 use crate::noise::crypto::LocalStaticSecret;
 use crate::Tun;
 

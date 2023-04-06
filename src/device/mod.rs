@@ -1,7 +1,7 @@
 mod config;
 mod error;
+mod inbound;
 mod metrics;
-mod outbound;
 mod peer;
 mod rate_limiter;
 mod time;
@@ -26,7 +26,7 @@ use crate::noise::handshake::{Cookie, IncomingInitiation};
 use crate::noise::protocol;
 use crate::noise::protocol::Message;
 use crate::Tun;
-use outbound::{Endpoint, Listener, Listeners};
+use inbound::{Endpoint, Inbound, Listener};
 use peer::Peers;
 use rate_limiter::RateLimiter;
 
@@ -40,7 +40,7 @@ where
     cfg: Mutex<DeviceConfig>,
     rate_limiter: RateLimiter,
     cookie: Cookie,
-    listeners: Listeners,
+    inbound: Inbound,
 }
 
 impl<T> Inner<T>
@@ -60,7 +60,7 @@ where
 
     #[inline]
     pub fn endpoint_for(&self, dst: SocketAddr) -> Endpoint {
-        self.listeners.endpoint_for(dst)
+        self.inbound.endpoint_for(dst)
     }
 }
 
@@ -105,8 +105,8 @@ where
     pub async fn with_tun(tun: T, mut cfg: DeviceConfig) -> Result<Self, Error> {
         let stop = Arc::new(Notify::new());
 
-        let listeners = Listeners::bind(cfg.listen_port).await?;
-        cfg.listen_port = listeners.local_port();
+        let inbound = Inbound::bind(cfg.listen_port).await?;
+        cfg.listen_port = inbound.local_port();
 
         let secret = LocalStaticSecret::new(cfg.private_key);
 
@@ -115,14 +115,14 @@ where
             peers.insert(
                 p.public_key,
                 p.allowed_ips.clone(),
-                p.endpoint.map(|addr| listeners.endpoint_for(addr)),
+                p.endpoint.map(|addr| inbound.endpoint_for(addr)),
             );
         });
 
         let cookie = Cookie::new(&secret);
         let rate_limiter = RateLimiter::new(1_000);
-        let listener_v4 = listeners.v4();
-        let listener_v6 = listeners.v6();
+        let listener_v4 = inbound.v4();
+        let listener_v6 = inbound.v6();
 
         let inner = {
             let cfg = Mutex::new(cfg);
@@ -133,7 +133,7 @@ where
                 cfg,
                 cookie,
                 rate_limiter,
-                listeners,
+                inbound,
             })
         };
         let handles = vec![
