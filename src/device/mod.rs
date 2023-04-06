@@ -27,7 +27,7 @@ use crate::noise::protocol;
 use crate::noise::protocol::Message;
 use crate::Tun;
 use inbound::{Endpoint, Inbound, Listener};
-use peer::Peers;
+use peer::PeerIndex;
 use rate_limiter::RateLimiter;
 
 struct Inner<T>
@@ -36,7 +36,7 @@ where
 {
     tun: T,
     secret: LocalStaticSecret,
-    peers: Peers<T>,
+    peers: PeerIndex<T>,
     cfg: Mutex<DeviceConfig>,
     rate_limiter: RateLimiter,
     cookie: Cookie,
@@ -110,7 +110,7 @@ where
 
         let secret = LocalStaticSecret::new(cfg.private_key);
 
-        let peers = Peers::new(tun.clone(), secret.clone());
+        let peers = PeerIndex::new(tun.clone(), secret.clone());
         cfg.peers.iter().for_each(|p| {
             peers.insert(
                 p.public_key,
@@ -475,7 +475,7 @@ where
 
             debug!("trying to send packet to {}", dst);
 
-            let peer = inner.peers.get_by_allow_ip(dst);
+            let peer = inner.peers.get_by_ip(dst);
 
             if let Some(peer) = peer {
                 debug!("sending packet[{}] to {dst}", buf.len());
