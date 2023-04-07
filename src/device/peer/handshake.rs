@@ -43,7 +43,7 @@ impl Handshake {
     pub fn initiate(&mut self) -> (Session, Vec<u8>) {
         let sender_index = self.tick_local_index();
         let (state, payload) = OutgoingInitiation::new(sender_index, &self.secret, &mut self.macs);
-        let pre = Session::new(sender_index, [0u8; 32], 0, [0u8; 32]);
+        let pre = Session::new(self.secret.clone(), sender_index, [0u8; 32], 0, [0u8; 32]);
         self.state = State::Initiation(state);
 
         (pre, payload)
@@ -59,7 +59,13 @@ impl Handshake {
             OutgoingResponse::new(initiation, self.local_index, &self.secret, &mut self.macs);
         let (sender_index, receiver_index) = (self.local_index, initiation.index);
         let (receiver_key, sender_key) = kdf2(&state.chaining_key, &[]);
-        let sess = Session::new(sender_index, sender_key, receiver_index, receiver_key);
+        let sess = Session::new(
+            self.secret.clone(),
+            sender_index,
+            sender_key,
+            receiver_index,
+            receiver_key,
+        );
 
         Ok((sess, payload))
     }
@@ -70,7 +76,13 @@ impl Handshake {
                 let state = IncomingResponse::parse(initiation, &self.secret, packet)?;
                 let (sender_index, receiver_index) = (initiation.index, state.index);
                 let (sender_key, receiver_key) = kdf2(&state.chaining_key, &[]);
-                let sess = Session::new(sender_index, sender_key, receiver_index, receiver_key);
+                let sess = Session::new(
+                    self.secret.clone(),
+                    sender_index,
+                    sender_key,
+                    receiver_index,
+                    receiver_key,
+                );
 
                 Ok(sess)
             }

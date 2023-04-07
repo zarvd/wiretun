@@ -1,12 +1,12 @@
 mod cidr;
 pub mod handshake;
+mod index;
 mod monitor;
-mod peers;
 mod session;
 
 pub use cidr::{Cidr, ParseCidrError};
+pub(crate) use index::PeerIndex;
 pub use monitor::PeerMetrics;
-pub(crate) use peers::Peers;
 
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::{
@@ -30,7 +30,7 @@ use crate::noise::protocol::{
 use crate::Tun;
 use handshake::Handshake;
 use monitor::PeerMonitor;
-use session::{Session, SessionManager, Sessions};
+use session::{Session, SessionIndex, Sessions};
 
 #[derive(Debug)]
 enum OutboundEvent {
@@ -82,7 +82,7 @@ where
     pub(super) fn new(
         tun: T,
         secret: PeerStaticSecret,
-        session_mgr: SessionManager,
+        session_mgr: SessionIndex,
         endpoint: Option<Endpoint>,
     ) -> Self {
         let inner = Inner::new(tun, secret, session_mgr);
@@ -172,7 +172,7 @@ where
     }
 
     /// Stop the peer and all its associated tasks.
-    /// The lifetime of the peer is managed by the [`Peers`].
+    /// The lifetime of the peer is managed by the [`PeerIndex`].
     #[inline]
     pub(super) fn stop(&self) {
         self.inner.running.store(false, atomic::Ordering::SeqCst);
@@ -200,11 +200,11 @@ impl<T> Inner<T>
 where
     T: Tun + 'static,
 {
-    pub fn new(tun: T, secret: PeerStaticSecret, session_mgr: SessionManager) -> Arc<Self> {
+    pub fn new(tun: T, secret: PeerStaticSecret, session_index: SessionIndex) -> Arc<Self> {
         let (inbound_tx, inbound_rx) = mpsc::channel(256);
         let (outbound_tx, outbound_rx) = mpsc::channel(256);
         let handshake = RwLock::new(Handshake::new(secret.clone()));
-        let sessions = RwLock::new(Sessions::new(secret.clone(), session_mgr));
+        let sessions = RwLock::new(Sessions::new(session_index));
         let me = Arc::new(Self {
             running: AtomicBool::new(true),
             tun,

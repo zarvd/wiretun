@@ -14,6 +14,7 @@ use crate::noise::{crypto, protocol};
 
 #[derive(Clone)]
 pub(crate) struct Session {
+    secret: PeerStaticSecret,
     sender_index: u32,
     sender_nonce: Arc<AtomicU64>,
     sender_key: [u8; 32],
@@ -26,12 +27,14 @@ pub(crate) struct Session {
 impl Session {
     #[inline]
     pub fn new(
+        secret: PeerStaticSecret,
         sender_index: u32,
         sender_key: [u8; 32],
         receiver_index: u32,
         receiver_key: [u8; 32],
     ) -> Self {
         Self {
+            secret,
             sender_index,
             sender_key,
             sender_nonce: Arc::new(AtomicU64::new(0)),
@@ -79,6 +82,11 @@ impl Session {
         debug!("try to decrypt data: {:?}", packet);
         crypto::aead_decrypt(&self.receiver_key, packet.counter, &packet.payload, &[])
             .map_err(Error::Noise)
+    }
+
+    #[inline]
+    pub fn secret(&self) -> &PeerStaticSecret {
+        &self.secret
     }
 }
 
@@ -195,8 +203,7 @@ impl fmt::Debug for NonceFilter {
 }
 
 pub(super) struct Sessions {
-    mgr: SessionManager,
-    secret: PeerStaticSecret,
+    index: SessionIndex,
     uninit: Option<Session>,
     previous: Option<Session>,
     current: Option<Session>,
@@ -204,10 +211,9 @@ pub(super) struct Sessions {
 }
 
 impl Sessions {
-    pub fn new(secret: PeerStaticSecret, mgr: SessionManager) -> Self {
+    pub fn new(index: SessionIndex) -> Self {
         Self {
-            secret,
-            mgr,
+            index,
             uninit: None,
             previous: None,
             current: None,
@@ -299,8 +305,7 @@ impl Sessions {
             "activate session: {} / {}",
             session.sender_index, session.receiver_index
         );
-        self.mgr
-            .insert(session.clone(), self.secret.public_key().to_bytes());
+        self.index.insert(session.clone());
     }
 
     #[inline]
@@ -309,76 +314,66 @@ impl Sessions {
             "deactivate session: {} / {}",
             session.sender_index, session.receiver_index
         );
-        self.mgr.remove(session);
-    }
-}
-
-struct SessionManagerInner {
-    by_index: HashMap<u32, (Session, [u8; 32])>,
-    by_key: HashMap<[u8; 32], HashSet<u32>>,
-}
-
-impl SessionManagerInner {
-    pub fn new() -> Self {
-        Self {
-            by_index: HashMap::new(),
-            by_key: HashMap::new(),
-        }
+        self.index.remove(session);
     }
 }
 
 #[derive(Clone)]
-pub(crate) struct SessionManager {
-    inner: Arc<RwLock<SessionManagerInner>>,
+pub(crate) struct SessionIndex {
+    indexes: Arc<RwLock<HashMap<u32, Session>>>,
+    keys: Arc<RwLock<HashMap<[u8; 32], HashSet<u32>>>>,
 }
 
-impl SessionManager {
+impl SessionIndex {
     pub fn new() -> Self {
-        let inner = Arc::new(RwLock::new(SessionManagerInner::new()));
-        Self { inner }
+        Self {
+            indexes: Arc::new(RwLock::new(HashMap::new())),
+            keys: Arc::new(RwLock::new(HashMap::new())),
+        }
     }
 
-    pub fn insert(&self, session: Session, peer_static_pub: [u8; 32]) {
-        let mut inner = self.inner.write().unwrap();
+    pub fn insert(&self, session: Session) {
+        let mut indexes = self.indexes.write().unwrap();
+        let mut keys = self.keys.write().unwrap();
         let index = session.sender_index;
-        inner.by_index.insert(index, (session, peer_static_pub));
-        inner
-            .by_key
-            .entry(peer_static_pub)
+        keys.entry(session.secret.public_key().to_bytes())
             .or_default()
             .insert(index);
+        indexes.insert(index, session);
     }
 
-    pub fn get_by_index(&self, index: u32) -> Option<(Session, [u8; 32])> {
-        let inner = self.inner.read().unwrap();
-        inner.by_index.get(&index).cloned()
+    pub fn get_by_index(&self, index: u32) -> Option<Session> {
+        self.indexes.read().unwrap().get(&index).cloned()
     }
 
-    pub fn remove(&self, session: &Session) -> Option<(Session, [u8; 32])> {
-        let mut inner = self.inner.write().unwrap();
-        if let Some((session, key)) = inner.by_index.remove(&session.sender_index) {
-            inner
-                .by_key
-                .get_mut(&key)
+    pub fn remove(&self, session: &Session) -> Option<Session> {
+        let mut indexes = self.indexes.write().unwrap();
+        let mut keys = self.keys.write().unwrap();
+        if let Some(session) = indexes.remove(&session.sender_index) {
+            keys.get_mut(session.secret.public_key().as_bytes())
                 .unwrap()
                 .remove(&session.sender_index);
-            Some((session, key))
+            Some(session)
         } else {
             None
         }
     }
 
     pub fn remove_by_key(&self, key: &[u8; 32]) {
-        let mut inner = self.inner.write().unwrap();
-        if let Some(indices) = inner.by_key.remove(key) {
+        let mut indexes = self.indexes.write().unwrap();
+        let mut keys = self.keys.write().unwrap();
+        if let Some(indices) = keys.remove(key) {
             for index in indices {
-                inner.by_index.remove(&index);
+                indexes.remove(&index);
             }
         }
     }
 
     pub fn clear(&self) {
-        *self.inner.write().unwrap() = SessionManagerInner::new();
+        let mut indexes = self.indexes.write().unwrap();
+        let mut keys = self.keys.write().unwrap();
+        indexes.clear();
+        keys.clear();
     }
 }
 
