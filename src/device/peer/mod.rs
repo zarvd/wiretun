@@ -9,13 +9,11 @@ pub(crate) use index::PeerIndex;
 pub use monitor::PeerMetrics;
 
 use std::fmt::{Debug, Display, Formatter};
-use std::sync::{
-    atomic::{self, AtomicBool},
-    Arc, RwLock,
-};
+use std::sync::{Arc, RwLock};
 
 use tokio::sync::mpsc;
 use tokio::time;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use crate::device::inbound::Endpoint;
@@ -35,7 +33,6 @@ use session::{Session, SessionIndex, Sessions};
 #[derive(Debug)]
 enum OutboundEvent {
     Data(Vec<u8>),
-    Eof,
 }
 
 #[derive(Debug)]
@@ -59,7 +56,6 @@ enum InboundEvent {
         packet: protocol::TransportData,
         session: Session,
     },
-    Eof,
 }
 
 type InboundTx = mpsc::Sender<InboundEvent>;
@@ -80,12 +76,13 @@ where
     T: Tun + 'static,
 {
     pub(super) fn new(
+        token: CancellationToken,
         tun: T,
         secret: PeerStaticSecret,
         session_mgr: SessionIndex,
         endpoint: Option<Endpoint>,
     ) -> Self {
-        let inner = Inner::new(tun, secret, session_mgr);
+        let inner = Inner::new(token, tun, secret, session_mgr);
         if let Some(endpoint) = endpoint {
             inner.update_endpoint(endpoint);
         }
@@ -175,17 +172,12 @@ where
     /// The lifetime of the peer is managed by the [`PeerIndex`].
     #[inline]
     pub(super) fn stop(&self) {
-        self.inner.running.store(false, atomic::Ordering::SeqCst);
-        let inner = Arc::clone(&self.inner);
-        tokio::spawn(async move {
-            let _ = inner.inbound.send(InboundEvent::Eof).await;
-            let _ = inner.outbound.send(OutboundEvent::Eof).await;
-        });
+        self.inner.token.cancel();
     }
 }
 
 struct Inner<T> {
-    running: AtomicBool,
+    token: CancellationToken,
     tun: T,
     secret: PeerStaticSecret,
     sessions: RwLock<Sessions>,
@@ -200,13 +192,19 @@ impl<T> Inner<T>
 where
     T: Tun + 'static,
 {
-    pub fn new(tun: T, secret: PeerStaticSecret, session_index: SessionIndex) -> Arc<Self> {
+    pub fn new(
+        token: CancellationToken,
+        tun: T,
+        secret: PeerStaticSecret,
+        session_index: SessionIndex,
+    ) -> Arc<Self> {
         let (inbound_tx, inbound_rx) = mpsc::channel(256);
         let (outbound_tx, outbound_rx) = mpsc::channel(256);
         let handshake = RwLock::new(Handshake::new(secret.clone()));
         let sessions = RwLock::new(Sessions::new(session_index));
+        let child_token = token.child_token();
         let me = Arc::new(Self {
-            running: AtomicBool::new(true),
+            token,
             tun,
             secret,
             handshake,
@@ -217,9 +215,13 @@ where
             monitor: PeerMonitor::new(),
         });
 
-        tokio::spawn(loop_handshake(Arc::clone(&me)));
-        tokio::spawn(loop_inbound(Arc::clone(&me), inbound_rx));
-        tokio::spawn(loop_outbound(Arc::clone(&me), outbound_rx));
+        tokio::spawn(loop_handshake(child_token.clone(), Arc::clone(&me)));
+        tokio::spawn(loop_inbound(
+            child_token.clone(),
+            Arc::clone(&me),
+            inbound_rx,
+        ));
+        tokio::spawn(loop_outbound(child_token, Arc::clone(&me), outbound_rx));
 
         me
     }
@@ -290,12 +292,12 @@ impl<T> Debug for Inner<T> {
     }
 }
 
-async fn loop_handshake<T>(inner: Arc<Inner<T>>)
+async fn loop_handshake<T>(token: CancellationToken, inner: Arc<Inner<T>>)
 where
     T: Tun + 'static,
 {
     debug!("starting handshake loop for peer {inner}");
-    while inner.running.load(atomic::Ordering::Relaxed) {
+    while !token.is_cancelled() {
         if inner.monitor.can_handshake() {
             info!("initiating handshake");
             let packet = {
@@ -314,7 +316,7 @@ where
 }
 
 // Send to endpoint if connected, otherwise queue for later
-async fn loop_outbound<T>(inner: Arc<Inner<T>>, mut rx: OutboundRx)
+async fn loop_outbound<T>(token: CancellationToken, inner: Arc<Inner<T>>, mut rx: OutboundRx)
 where
     T: Tun + 'static,
 {
@@ -322,6 +324,7 @@ where
 
     loop {
         tokio::select! {
+            _ = token.cancelled() => break,
             _ = time::sleep(monitor::KEEPALIVE_TIMEOUT) => {
                 inner.keepalive().await;
             }
@@ -330,7 +333,6 @@ where
                     Some(OutboundEvent::Data(data)) => {
                         tick_outbound(Arc::clone(&inner), data).await;
                     }
-                    Some(OutboundEvent::Eof) => break,
                     None => break,
                 }
             }
@@ -360,148 +362,169 @@ where
 }
 
 // Send to tun if we have a valid session
-async fn loop_inbound<T>(inner: Arc<Inner<T>>, mut rx: InboundRx)
+async fn loop_inbound<T>(token: CancellationToken, inner: Arc<Inner<T>>, mut rx: InboundRx)
 where
     T: Tun + 'static,
 {
     debug!("starting inbound loop for peer {inner}");
 
-    while let Some(event) = rx.recv().await {
-        match event {
-            InboundEvent::HanshakeInitiation {
-                endpoint,
-                initiation,
-            } => handle_handshake_initiation(Arc::clone(&inner), endpoint, initiation).await,
-            InboundEvent::HandshakeResponse {
-                endpoint,
-                packet,
-                session,
-            } => handle_handshake_response(Arc::clone(&inner), endpoint, packet, session).await,
-            InboundEvent::CookieReply {
-                endpoint,
-                packet,
-                session,
-            } => handle_cookie_reply(Arc::clone(&inner), endpoint, packet, session).await,
-            InboundEvent::TransportData {
-                endpoint,
-                packet,
-                session,
-            } => handle_transport_data(Arc::clone(&inner), endpoint, packet, session).await,
-            InboundEvent::Eof => break,
+    loop {
+        tokio::select! {
+            () = token.cancelled() => break,
+            event = rx.recv() => {
+                match event {
+                    Some(event) => tick_inbound(Arc::clone(&inner), event).await,
+                    None => break,
+                }
+            }
         }
     }
+
     debug!("exiting inbound loop for peer {inner}");
 }
 
-async fn handle_handshake_initiation<T>(
-    inner: Arc<Inner<T>>,
-    endpoint: Endpoint,
-    initiation: IncomingInitiation,
-) where
+async fn tick_inbound<T>(inner: Arc<Inner<T>>, event: InboundEvent)
+where
     T: Tun + 'static,
 {
-    inner
-        .monitor
-        .traffic()
-        .inbound(protocol::HANDSHAKE_INITIATION_PACKET_SIZE);
-    let ret = {
-        let mut handshake = inner.handshake.write().unwrap();
-        handshake.respond(&initiation)
-    };
-    match ret {
-        Ok((session, packet)) => {
-            {
-                let mut sessions = inner.sessions.write().unwrap();
-                sessions.prepare_next(session);
-            }
-            inner.update_endpoint(endpoint.clone());
-            endpoint.send(&packet).await.unwrap();
-            inner.monitor.handshake().initiated();
+    match event {
+        InboundEvent::HanshakeInitiation {
+            endpoint,
+            initiation,
+        } => inbound::handle_handshake_initiation(Arc::clone(&inner), endpoint, initiation).await,
+        InboundEvent::HandshakeResponse {
+            endpoint,
+            packet,
+            session,
+        } => {
+            inbound::handle_handshake_response(Arc::clone(&inner), endpoint, packet, session).await
         }
-        Err(e) => debug!("failed to respond to handshake initiation: {e}"),
+        InboundEvent::CookieReply {
+            endpoint,
+            packet,
+            session,
+        } => inbound::handle_cookie_reply(Arc::clone(&inner), endpoint, packet, session).await,
+        InboundEvent::TransportData {
+            endpoint,
+            packet,
+            session,
+        } => inbound::handle_transport_data(Arc::clone(&inner), endpoint, packet, session).await,
     }
 }
 
-async fn handle_handshake_response<T>(
-    inner: Arc<Inner<T>>,
-    endpoint: Endpoint,
-    packet: HandshakeResponse,
-    _session: Session,
-) where
-    T: Tun + 'static,
-{
-    inner
-        .monitor
-        .traffic()
-        .inbound(HANDSHAKE_RESPONSE_PACKET_SIZE);
-    let ret = {
-        let mut handshake = inner.handshake.write().unwrap();
-        handshake.finalize(&packet)
-    };
-    match ret {
-        Ok(session) => {
-            let ret = {
-                let mut sessions = inner.sessions.write().unwrap();
-                sessions.complete_uninit(session)
-            };
-            if !ret {
-                debug!("failed to complete handshake, session not found");
-                return;
-            }
+mod inbound {
+    use super::*;
 
-            inner.monitor.handshake().completed();
-            info!("handshake completed");
-            inner.update_endpoint(endpoint);
-            inner.stage_outbound(OutboundEvent::Data(vec![])).await; // let the peer know the session is valid
-        }
-        Err(e) => debug!("failed to finalize handshake: {e}"),
-    }
-}
-
-async fn handle_cookie_reply<T>(
-    inner: Arc<Inner<T>>,
-    _endpoint: Endpoint,
-    _packet: CookieReply,
-    _session: Session,
-) where
-    T: Tun + 'static,
-{
-    inner.monitor.traffic().inbound(COOKIE_REPLY_PACKET_SIZE);
-}
-
-async fn handle_transport_data<T>(
-    inner: Arc<Inner<T>>,
-    endpoint: Endpoint,
-    packet: TransportData,
-    session: Session,
-) where
-    T: Tun + 'static,
-{
-    inner.monitor.traffic().inbound(packet.packet_len());
+    pub(super) async fn handle_handshake_initiation<T>(
+        inner: Arc<Inner<T>>,
+        endpoint: Endpoint,
+        initiation: IncomingInitiation,
+    ) where
+        T: Tun + 'static,
     {
-        let mut sessions = inner.sessions.write().unwrap();
-        if sessions.complete_next(session.clone()) {
-            info!("handshake completed");
-            inner.monitor.handshake().completed();
-        }
-    }
-    if !session.can_accept(packet.counter) {
-        debug!("dropping packet due to replay");
-        return;
-    }
-
-    inner.update_endpoint(endpoint);
-    match session.decrypt_data(&packet) {
-        Ok(data) => {
-            if data.is_empty() {
-                // keepalive
-                return;
+        inner
+            .monitor
+            .traffic()
+            .inbound(protocol::HANDSHAKE_INITIATION_PACKET_SIZE);
+        let ret = {
+            let mut handshake = inner.handshake.write().unwrap();
+            handshake.respond(&initiation)
+        };
+        match ret {
+            Ok((session, packet)) => {
+                {
+                    let mut sessions = inner.sessions.write().unwrap();
+                    sessions.prepare_next(session);
+                }
+                inner.update_endpoint(endpoint.clone());
+                endpoint.send(&packet).await.unwrap();
+                inner.monitor.handshake().initiated();
             }
-
-            debug!("recv data from peer and try to send it to TUN");
-            inner.tun.send(&data).await.unwrap();
-            session.aceept(packet.counter);
+            Err(e) => debug!("failed to respond to handshake initiation: {e}"),
         }
-        Err(e) => debug!("failed to decrypt packet: {e}"),
+    }
+
+    pub(super) async fn handle_handshake_response<T>(
+        inner: Arc<Inner<T>>,
+        endpoint: Endpoint,
+        packet: HandshakeResponse,
+        _session: Session,
+    ) where
+        T: Tun + 'static,
+    {
+        inner
+            .monitor
+            .traffic()
+            .inbound(HANDSHAKE_RESPONSE_PACKET_SIZE);
+        let ret = {
+            let mut handshake = inner.handshake.write().unwrap();
+            handshake.finalize(&packet)
+        };
+        match ret {
+            Ok(session) => {
+                let ret = {
+                    let mut sessions = inner.sessions.write().unwrap();
+                    sessions.complete_uninit(session)
+                };
+                if !ret {
+                    debug!("failed to complete handshake, session not found");
+                    return;
+                }
+
+                inner.monitor.handshake().completed();
+                info!("handshake completed");
+                inner.update_endpoint(endpoint);
+                inner.stage_outbound(OutboundEvent::Data(vec![])).await; // let the peer know the session is valid
+            }
+            Err(e) => debug!("failed to finalize handshake: {e}"),
+        }
+    }
+
+    pub(super) async fn handle_cookie_reply<T>(
+        inner: Arc<Inner<T>>,
+        _endpoint: Endpoint,
+        _packet: CookieReply,
+        _session: Session,
+    ) where
+        T: Tun + 'static,
+    {
+        inner.monitor.traffic().inbound(COOKIE_REPLY_PACKET_SIZE);
+    }
+
+    pub(super) async fn handle_transport_data<T>(
+        inner: Arc<Inner<T>>,
+        endpoint: Endpoint,
+        packet: TransportData,
+        session: Session,
+    ) where
+        T: Tun + 'static,
+    {
+        inner.monitor.traffic().inbound(packet.packet_len());
+        {
+            let mut sessions = inner.sessions.write().unwrap();
+            if sessions.complete_next(session.clone()) {
+                info!("handshake completed");
+                inner.monitor.handshake().completed();
+            }
+        }
+        if !session.can_accept(packet.counter) {
+            debug!("dropping packet due to replay");
+            return;
+        }
+
+        inner.update_endpoint(endpoint);
+        match session.decrypt_data(&packet) {
+            Ok(data) => {
+                if data.is_empty() {
+                    // keepalive
+                    return;
+                }
+
+                debug!("recv data from peer and try to send it to TUN");
+                inner.tun.send(&data).await.unwrap();
+                session.aceept(packet.counter);
+            }
+            Err(e) => debug!("failed to decrypt packet: {e}"),
+        }
     }
 }

@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::RwLock;
 
+use tokio_util::sync::CancellationToken;
+
 use super::cidr::{Cidr, CidrTable};
 use super::session::{Session, SessionIndex};
 use super::{Peer, PeerMetrics};
@@ -22,6 +24,7 @@ pub(crate) struct PeerIndex<T>
 where
     T: Tun + 'static,
 {
+    token: CancellationToken,
     tun: T,
     secret: LocalStaticSecret,
     sessions: SessionIndex,
@@ -33,8 +36,9 @@ impl<T> PeerIndex<T>
 where
     T: Tun + 'static,
 {
-    pub fn new(tun: T, secret: LocalStaticSecret) -> Self {
+    pub fn new(token: CancellationToken, tun: T, secret: LocalStaticSecret) -> Self {
         Self {
+            token,
             tun,
             secret,
             peers: RwLock::new(HashMap::new()),
@@ -52,6 +56,7 @@ where
         let mut peers = self.peers.write().unwrap();
         let entry = peers.entry(public_key).or_insert_with(|| {
             let p = Peer::new(
+                self.token.child_token(),
                 self.tun.clone(),
                 self.secret.clone().with_peer(public_key),
                 self.sessions.clone(),
@@ -158,6 +163,6 @@ where
     T: Tun + 'static,
 {
     fn drop(&mut self) {
-        self.clear();
+        self.token.cancel();
     }
 }
