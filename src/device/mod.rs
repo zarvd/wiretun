@@ -17,8 +17,8 @@ use std::time::Duration;
 
 use futures::future::join_all;
 use futures::StreamExt;
-use tokio::sync::Notify;
 use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, warn};
 
 use crate::noise::crypto::LocalStaticSecret;
@@ -87,7 +87,7 @@ where
 {
     inner: Arc<Inner<T>>,
     handles: Vec<JoinHandle<()>>,
-    stop: Arc<Notify>,
+    cancel_token: CancellationToken,
 }
 
 #[cfg(feature = "native")]
@@ -103,14 +103,14 @@ where
     T: Tun + 'static,
 {
     pub async fn with_tun(tun: T, mut cfg: DeviceConfig) -> Result<Self, Error> {
-        let stop = Arc::new(Notify::new());
+        let cancel_token = CancellationToken::new();
 
         let inbound = Inbound::bind(cfg.listen_port).await?;
         cfg.listen_port = inbound.local_port();
 
         let secret = LocalStaticSecret::new(cfg.private_key);
 
-        let peers = PeerIndex::new(tun.clone(), secret.clone());
+        let peers = PeerIndex::new(cancel_token.child_token(), tun.clone(), secret.clone());
         cfg.peers.iter().for_each(|p| {
             peers.insert(
                 p.public_key,
@@ -137,24 +137,24 @@ where
             })
         };
         let handles = vec![
-            tokio::spawn(loop_tun_events(Arc::clone(&inner), Arc::clone(&stop))),
-            tokio::spawn(loop_outbound(Arc::clone(&inner), Arc::clone(&stop))),
+            tokio::spawn(loop_tun_events(Arc::clone(&inner), cancel_token.clone())),
+            tokio::spawn(loop_outbound(Arc::clone(&inner), cancel_token.clone())),
             tokio::spawn(loop_inbound(
                 Arc::clone(&inner),
                 listener_v4,
-                Arc::clone(&stop),
+                cancel_token.clone(),
             )),
             tokio::spawn(loop_inbound(
                 Arc::clone(&inner),
                 listener_v6,
-                Arc::clone(&stop),
+                cancel_token.clone(),
             )),
         ];
 
         Ok(Device {
             inner,
             handles,
-            stop,
+            cancel_token,
         })
     }
 
@@ -166,8 +166,7 @@ where
     }
 
     pub async fn terminate(mut self) {
-        self.stop.notify_waiters();
-        self.inner.peers.clear();
+        self.cancel_token.cancel();
         join_all(self.handles.drain(..)).await;
     }
 }
@@ -177,11 +176,7 @@ where
     T: Tun,
 {
     fn drop(&mut self) {
-        self.stop.notify_waiters();
-        self.inner.peers.clear();
-        for handle in self.handles.drain(..) {
-            handle.abort();
-        }
+        self.cancel_token.cancel();
     }
 }
 
@@ -316,14 +311,14 @@ where
     }
 }
 
-async fn loop_tun_events<T>(inner: Arc<Inner<T>>, stop_notify: Arc<Notify>)
+async fn loop_tun_events<T>(inner: Arc<Inner<T>>, token: CancellationToken)
 where
     T: Tun + 'static,
 {
     debug!("starting tun events loop");
     loop {
         tokio::select! {
-            _ = stop_notify.notified() => {
+            _ = token.cancelled() => {
                 debug!("stopping tun events loop");
                 return;
             }
@@ -340,14 +335,14 @@ where
     tokio::time::sleep(Duration::from_secs(5)).await;
 }
 
-async fn loop_inbound<T>(inner: Arc<Inner<T>>, mut listener: Listener, stop_notify: Arc<Notify>)
+async fn loop_inbound<T>(inner: Arc<Inner<T>>, mut listener: Listener, token: CancellationToken)
 where
     T: Tun + 'static,
 {
     debug!("starting inbound loop for {}", listener);
     loop {
         tokio::select! {
-            _ = stop_notify.notified() => {
+            _ = token.cancelled() => {
                 debug!("stopping outbound loop for {}", listener);
                 return;
             }
@@ -429,14 +424,14 @@ where
     }
 }
 
-async fn loop_outbound<T>(inner: Arc<Inner<T>>, stop_notify: Arc<Notify>)
+async fn loop_outbound<T>(inner: Arc<Inner<T>>, token: CancellationToken)
 where
     T: Tun + 'static,
 {
     debug!("starting outbound loop");
     loop {
         tokio::select! {
-            _ = stop_notify.notified() => {
+            _ = token.cancelled() => {
                 debug!("stopping inbound loop");
                 return;
             }
