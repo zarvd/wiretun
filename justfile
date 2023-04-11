@@ -30,4 +30,4 @@ fmt:
 
 # Lint code with clippy
 lint:
-    cargo clippy
+    cargo clippy --all-targets --all-features

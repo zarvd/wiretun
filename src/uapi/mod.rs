@@ -48,18 +48,19 @@ where
 
     loop {
         match conn.next().await {
-            Ok(Request::Get) => match handle_get(device.clone()) {
+            Ok(Request::Get) => match handle_get(device.clone()).await {
                 Ok(resp) => conn.write(resp).await,
                 Err(e) => {
                     error!("Failed to handle get operation: {}", e);
                     conn.write(Response::Err).await;
                 }
             },
-            Ok(Request::Set(req)) => match handle_set(device.clone(), req) {
+            Ok(Request::Set(req)) => match handle_set(device.clone(), req).await {
                 Ok(()) => {
                     conn.write(Response::Ok).await;
                 }
                 Err(e) => {
+                    error!("Failed to handle set operation: {}", e);
                     conn.write(Response::Err).await;
                 }
             },
@@ -119,7 +120,7 @@ where
     if let Some(port) = req.listen_port {
         device.update_listen_port(port).await.map_err(|e| {
             error!("Failed to update listen_port: {}", e);
-            e
+            Error::InvalidConfiguration(e.to_string())
         })?;
     }
     if let Some(_fwmark) = req.fwmark {
