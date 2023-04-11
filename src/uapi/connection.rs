@@ -37,7 +37,7 @@ impl Connection {
             b"set=1\n" => {
                 let mut buf = vec![];
                 while self.reader.read_until(b'\n', &mut buf).await? > 1 {}
-                let s = unsafe { String::from_utf8_unchecked(buf).trim_end().to_string() };
+                let s = unsafe { String::from_utf8_unchecked(buf).trim_end().to_owned() };
 
                 Ok(Request::Set(parse_set_request(&s)?))
             }
@@ -62,6 +62,7 @@ impl Connection {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn parse_set_request(s: &str) -> Result<SetDevice, Error> {
     debug!("UAPI: parsing set request: {:?}", s);
 
@@ -193,6 +194,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn test_parse_set_request() {
         let rv = parse_set_request(
             "private_key=e84b5a6d2717c1003a13b431570353dbaca9146cf150c5f8575680feba52027a

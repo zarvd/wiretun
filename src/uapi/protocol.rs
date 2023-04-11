@@ -56,19 +56,19 @@ pub struct GetPeer {
     pub persistent_keepalive_interval: u32,
 }
 
-impl Into<Bytes> for GetDevice {
-    fn into(self) -> Bytes {
+impl From<GetDevice> for Bytes {
+    fn from(value: GetDevice) -> Self {
         let mut buf = KVBuffer::new();
-        if self.private_key != [0u8; 32] {
-            buf.encode_and_put("private_key", &self.private_key);
+        if value.private_key != [0u8; 32] {
+            buf.encode_and_put("private_key", &value.private_key);
         }
-        buf.put_u16("listen_port", self.listen_port);
+        buf.put_u16("listen_port", value.listen_port);
 
-        if self.fwmark != 0 {
-            buf.put_u32("fwmark", self.fwmark);
+        if value.fwmark != 0 {
+            buf.put_u32("fwmark", value.fwmark);
         }
 
-        for peer in self.peers {
+        for peer in value.peers {
             buf.encode_and_put("public_key", &peer.public_key);
             buf.encode_and_put("preshared_key", &peer.psk);
             for ip in peer.allowed_ips {

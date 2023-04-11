@@ -13,7 +13,6 @@ pub use peer::{Cidr, ParseCidrError, PeerMetrics};
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use futures::future::join_all;
 use futures::StreamExt;
@@ -40,7 +39,7 @@ where
     cfg: Mutex<DeviceConfig>,
     rate_limiter: RateLimiter,
     cookie: Cookie,
-    inbound: Inbound,
+    inbound: Mutex<Inbound>,
 }
 
 impl<T> Inner<T>
@@ -60,7 +59,7 @@ where
 
     #[inline]
     pub fn endpoint_for(&self, dst: SocketAddr) -> Endpoint {
-        self.inbound.endpoint_for(dst)
+        self.inbound.lock().unwrap().endpoint_for(dst)
     }
 }
 
@@ -86,8 +85,9 @@ where
     T: Tun + 'static,
 {
     inner: Arc<Inner<T>>,
-    handles: Vec<JoinHandle<()>>,
-    cancel_token: CancellationToken,
+    inbound_handles: Arc<Mutex<(CancellationToken, Vec<JoinHandle<()>>)>>,
+    outbound_handles: Arc<Mutex<(CancellationToken, Vec<JoinHandle<()>>)>>,
+    token: CancellationToken,
 }
 
 #[cfg(feature = "native")]
@@ -103,14 +103,14 @@ where
     T: Tun + 'static,
 {
     pub async fn with_tun(tun: T, mut cfg: DeviceConfig) -> Result<Self, Error> {
-        let cancel_token = CancellationToken::new();
+        let token = CancellationToken::new();
 
         let inbound = Inbound::bind(cfg.listen_port).await?;
         cfg.listen_port = inbound.local_port();
 
         let secret = LocalStaticSecret::new(cfg.private_key);
 
-        let peers = PeerIndex::new(cancel_token.child_token(), tun.clone(), secret.clone());
+        let peers = PeerIndex::new(token.child_token(), tun.clone(), secret.clone());
         cfg.peers.iter().for_each(|p| {
             peers.insert(
                 p.public_key,
@@ -133,41 +133,53 @@ where
                 cfg,
                 cookie,
                 rate_limiter,
-                inbound,
+                inbound: Mutex::new(inbound),
             })
         };
-        let handles = vec![
-            tokio::spawn(loop_tun_events(Arc::clone(&inner), cancel_token.clone())),
-            tokio::spawn(loop_outbound(Arc::clone(&inner), cancel_token.clone())),
-            tokio::spawn(loop_inbound(
-                Arc::clone(&inner),
-                listener_v4,
-                cancel_token.clone(),
-            )),
-            tokio::spawn(loop_inbound(
-                Arc::clone(&inner),
-                listener_v6,
-                cancel_token.clone(),
-            )),
-        ];
+
+        let outbound_handles = {
+            let token = token.child_token();
+            Arc::new(Mutex::new((
+                token.clone(),
+                vec![tokio::spawn(loop_outbound(Arc::clone(&inner), token))],
+            )))
+        };
+        let inbound_handles = {
+            let token = token.child_token();
+            Arc::new(Mutex::new((
+                token.clone(),
+                vec![
+                    tokio::spawn(loop_inbound(Arc::clone(&inner), listener_v4, token.clone())),
+                    tokio::spawn(loop_inbound(Arc::clone(&inner), listener_v6, token)),
+                ],
+            )))
+        };
 
         Ok(Device {
             inner,
-            handles,
-            cancel_token,
+            inbound_handles,
+            outbound_handles,
+            token,
         })
     }
 
     #[inline]
     pub fn handle(&self) -> DeviceHandle<T> {
         DeviceHandle {
+            token: self.token.clone(),
             inner: Arc::clone(&self.inner),
+            inbound_handles: Arc::clone(&self.inbound_handles),
         }
     }
 
-    pub async fn terminate(mut self) {
-        self.cancel_token.cancel();
-        join_all(self.handles.drain(..)).await;
+    pub async fn terminate(self) {
+        self.token.cancel();
+
+        let mut handles = vec![];
+        handles.extend(&mut self.inbound_handles.lock().unwrap().1.drain(..));
+        handles.extend(&mut self.outbound_handles.lock().unwrap().1.drain(..));
+
+        join_all(handles).await;
     }
 }
 
@@ -176,7 +188,7 @@ where
     T: Tun,
 {
     fn drop(&mut self) {
-        self.cancel_token.cancel();
+        self.token.cancel();
     }
 }
 
@@ -209,7 +221,9 @@ pub struct DeviceHandle<T>
 where
     T: Tun + 'static,
 {
+    token: CancellationToken,
     inner: Arc<Inner<T>>,
+    inbound_handles: Arc<Mutex<(CancellationToken, Vec<JoinHandle<()>>)>>,
 }
 
 impl<T> DeviceHandle<T>
@@ -232,6 +246,48 @@ where
     #[inline(always)]
     pub fn metrics(&self) -> DeviceMetrics {
         self.inner.metrics()
+    }
+
+    pub async fn update_listen_port(&self, port: u16) -> Result<(), Error> {
+        {
+            let inbound = self.inner.inbound.lock().unwrap();
+            if inbound.local_port() == port {
+                return Ok(());
+            }
+        }
+
+        let new_inbound = Inbound::bind(port).await?;
+        let mut inbound = self.inner.inbound.lock().unwrap();
+        if inbound.local_port() == port {
+            return Ok(());
+        }
+        *inbound = new_inbound;
+
+        let v4 = inbound.v4();
+        let v6 = inbound.v6();
+
+        let mut handles = self.inbound_handles.lock().unwrap();
+        handles.0.cancel();
+
+        for peer in &self.inner.cfg.lock().unwrap().peers {
+            let pk = peer.public_key;
+            if let Some(peer) = self.inner.peers.get_by_key(&pk) {
+                if let Some(endpoint) = peer.endpoint() {
+                    peer.update_endpoint(inbound.endpoint_for(endpoint.dst()));
+                }
+            }
+        }
+
+        let token = self.token.child_token();
+        *handles = (
+            token.clone(),
+            vec![
+                tokio::spawn(loop_inbound(Arc::clone(&self.inner), v4, token.clone())),
+                tokio::spawn(loop_inbound(Arc::clone(&self.inner), v6, token)),
+            ],
+        );
+
+        Ok(())
     }
 
     /// Returns the configuration of a peer by its public key.
@@ -309,30 +365,6 @@ where
         self.inner.peers.clear();
         cfg.peers.clear();
     }
-}
-
-async fn loop_tun_events<T>(inner: Arc<Inner<T>>, token: CancellationToken)
-where
-    T: Tun + 'static,
-{
-    debug!("starting tun events loop");
-    loop {
-        tokio::select! {
-            _ = token.cancelled() => {
-                debug!("stopping tun events loop");
-                return;
-            }
-            _ = tick_tun_events(Arc::clone(&inner)) => {}
-        }
-    }
-}
-
-#[inline]
-async fn tick_tun_events<T>(_inner: Arc<Inner<T>>)
-where
-    T: Tun + 'static,
-{
-    tokio::time::sleep(Duration::from_secs(5)).await;
 }
 
 async fn loop_inbound<T>(inner: Arc<Inner<T>>, mut listener: Listener, token: CancellationToken)
