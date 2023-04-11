@@ -164,6 +164,11 @@ where
     }
 
     #[inline]
+    pub fn endpoint(&self) -> Option<Endpoint> {
+        self.inner.endpoint()
+    }
+
+    #[inline]
     pub fn metrics(&self) -> PeerMetrics {
         self.inner.monitor.metrics()
     }
@@ -256,6 +261,12 @@ where
     pub fn update_endpoint(&self, endpoint: Endpoint) {
         let mut guard = self.endpoint.write().unwrap();
         let _ = guard.insert(endpoint);
+    }
+
+    /// Return the endpoint of the peer.
+    #[inline]
+    pub fn endpoint(&self) -> Option<Endpoint> {
+        self.endpoint.read().unwrap().clone()
     }
 
     /// Send outbound data to the peer.

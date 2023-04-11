@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use tokio::net::UnixListener;
-use tracing::debug;
+use tracing::{debug, error};
 
 use crate::{DeviceHandle, Tun};
 
@@ -48,82 +48,21 @@ where
 
     loop {
         match conn.next().await {
-            Ok(Request::Get) => {
-                debug!("UAPI: received GET request");
-                let cfg = device.config();
-                let mut metrics = device.metrics();
-                let peers = cfg
-                    .peers
-                    .into_iter()
-                    .map(|p| {
-                        let m = metrics.peers.remove(&p.public_key).unwrap();
-                        GetPeer {
-                            public_key: p.public_key,
-                            psk: p.preshared_key.unwrap_or_default(),
-                            allowed_ips: p.allowed_ips,
-                            endpoint: p.endpoint,
-                            last_handshake_at: m.last_handshake_at,
-                            tx_bytes: m.tx_bytes,
-                            rx_bytes: m.rx_bytes,
-                            persistent_keepalive_interval: 0,
-                        }
-                    })
-                    .collect();
-                conn.write(Response::Get(GetDevice {
-                    private_key: cfg.private_key,
-                    listen_port: cfg.listen_port,
-                    fwmark: 0,
-                    peers,
-                }))
-                .await;
-            }
-            Ok(Request::Set(req)) => {
-                debug!("UAPI: received SET request");
-                if req.replace_peers {
-                    device.clear_peers();
+            Ok(Request::Get) => match handle_get(device.clone()) {
+                Ok(resp) => conn.write(resp).await,
+                Err(e) => {
+                    error!("Failed to handle get operation: {}", e);
+                    conn.write(Response::Err).await;
                 }
-                if let Some(_private_key) = req.private_key {
-                    // unsupoorted
+            },
+            Ok(Request::Set(req)) => match handle_set(device.clone(), req) {
+                Ok(()) => {
+                    conn.write(Response::Ok).await;
                 }
-                if let Some(_port) = req.listen_port {
-                    // unsupoorted
+                Err(e) => {
+                    conn.write(Response::Err).await;
                 }
-                if let Some(_fwmark) = req.fwmark {
-                    // unsupoorted
-                }
-
-                for peer in req.peers {
-                    if peer.remove {
-                        device.remove_peer(&peer.public_key);
-                        break;
-                    }
-                    match device.peer_config(&peer.public_key) {
-                        Some(cfg) => {
-                            // to update
-                            if let Some(endpoint) = peer.endpoint {
-                                device.update_peer_endpoint(&peer.public_key, endpoint);
-                            }
-                            let mut allowed_ips =
-                                cfg.allowed_ips.into_iter().collect::<HashSet<_>>();
-                            if peer.replace_allowed_ips {
-                                allowed_ips.clear();
-                            }
-                            for ip in peer.allowed_ips {
-                                allowed_ips.insert(ip);
-                            }
-                            device.update_allowed_ips_by_peer(
-                                &peer.public_key,
-                                allowed_ips.into_iter().collect(),
-                            );
-                        }
-                        None if !peer.update_only => {
-                            device.insert_peer(peer.public_key, peer.allowed_ips, peer.endpoint);
-                        }
-                        _ => {}
-                    }
-                }
-                conn.write(Response::Ok).await;
-            }
+            },
             Err(e) => {
                 debug!("UAPI connection error: {}", e);
                 conn.write(Response::Err).await;
@@ -131,6 +70,93 @@ where
             }
         }
     }
+}
+
+async fn handle_get<T>(device: DeviceHandle<T>) -> Result<Response, Error>
+where
+    T: Tun + 'static,
+{
+    debug!("UAPI: received GET request");
+    let cfg = device.config();
+    let mut metrics = device.metrics();
+    let peers = cfg
+        .peers
+        .into_iter()
+        .map(|p| {
+            let m = metrics.peers.remove(&p.public_key).unwrap();
+            GetPeer {
+                public_key: p.public_key,
+                psk: p.preshared_key.unwrap_or_default(),
+                allowed_ips: p.allowed_ips,
+                endpoint: p.endpoint,
+                last_handshake_at: m.last_handshake_at,
+                tx_bytes: m.tx_bytes,
+                rx_bytes: m.rx_bytes,
+                persistent_keepalive_interval: 0,
+            }
+        })
+        .collect();
+
+    Ok(Response::Get(GetDevice {
+        private_key: cfg.private_key,
+        listen_port: cfg.listen_port,
+        fwmark: 0,
+        peers,
+    }))
+}
+
+async fn handle_set<T>(device: DeviceHandle<T>, req: SetDevice) -> Result<(), Error>
+where
+    T: Tun + 'static,
+{
+    debug!("UAPI: received SET request");
+    if req.replace_peers {
+        device.clear_peers();
+    }
+    if let Some(_private_key) = req.private_key {
+        // unsupoorted
+    }
+    if let Some(port) = req.listen_port {
+        device.update_listen_port(port).await.map_err(|e| {
+            error!("Failed to update listen_port: {}", e);
+            e
+        })?;
+    }
+    if let Some(_fwmark) = req.fwmark {
+        // unsupoorted
+    }
+
+    for peer in req.peers {
+        if peer.remove {
+            device.remove_peer(&peer.public_key);
+            break;
+        }
+        match device.peer_config(&peer.public_key) {
+            Some(cfg) => {
+                // to update
+                if let Some(endpoint) = peer.endpoint {
+                    device.update_peer_endpoint(&peer.public_key, endpoint);
+                }
+                let mut allowed_ips = cfg.allowed_ips.into_iter().collect::<HashSet<_>>();
+                if peer.replace_allowed_ips {
+                    allowed_ips.clear();
+                }
+                for ip in peer.allowed_ips {
+                    allowed_ips.insert(ip);
+                }
+                device.update_allowed_ips_by_peer(
+                    &peer.public_key,
+                    allowed_ips.into_iter().collect(),
+                );
+            }
+            None if !peer.update_only => {
+                device.insert_peer(peer.public_key, peer.allowed_ips, peer.endpoint);
+            }
+            _ => {}
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

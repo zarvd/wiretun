@@ -1,8 +1,8 @@
 use std::error::Error;
+use std::time::Duration;
 
 use base64::engine::general_purpose::STANDARD as base64Encoding;
 use base64::Engine;
-use tokio::signal::unix::{signal, SignalKind};
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -52,21 +52,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         uapi::bind_and_handle(handle).await.unwrap();
     });
 
-    shutdown().await;
+    let handle = device.handle();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        info!("Updating listen port");
+        let _ = handle.update_listen_port(9991).await;
+    });
+
+    tokio::signal::ctrl_c().await?;
     device.terminate().await; // stop gracefully
 
     Ok(())
-}
-
-pub async fn shutdown() {
-    tokio::select! {
-        () = recv_signal_and_shutdown(SignalKind::interrupt()) => {}
-        () = recv_signal_and_shutdown(SignalKind::terminate()) => {}
-    };
-
-    info!("recv signal and shutting down");
-}
-
-async fn recv_signal_and_shutdown(kind: SignalKind) {
-    signal(kind).expect("register signal handler").recv().await;
 }
