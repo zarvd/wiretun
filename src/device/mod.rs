@@ -269,7 +269,9 @@ where
         let mut handles = self.inbound_handles.lock().unwrap();
         handles.0.cancel();
 
-        for peer in &self.inner.cfg.lock().unwrap().peers {
+        let mut cfg = self.inner.cfg.lock().unwrap();
+        cfg.listen_port = port;
+        for peer in &cfg.peers {
             let pk = peer.public_key;
             if let Some(peer) = self.inner.peers.get_by_key(&pk) {
                 if let Some(endpoint) = peer.endpoint() {
