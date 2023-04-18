@@ -5,8 +5,10 @@ mod monitor;
 mod session;
 
 pub use cidr::{Cidr, ParseCidrError};
-pub(crate) use index::PeerIndex;
 pub use monitor::PeerMetrics;
+
+pub(crate) use index::PeerIndex;
+pub(crate) use session::Session;
 
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::{Arc, RwLock};
@@ -28,7 +30,7 @@ use crate::noise::protocol::{
 use crate::Tun;
 use handshake::Handshake;
 use monitor::PeerMonitor;
-use session::{Session, SessionIndex, Sessions};
+use session::{SessionIndex, Sessions};
 
 #[derive(Debug)]
 enum OutboundEvent {
@@ -159,18 +161,24 @@ where
     }
 
     #[inline]
+    pub fn endpoint(&self) -> Option<Endpoint> {
+        let endpoint = self.inner.endpoint.read().unwrap();
+        endpoint.clone()
+    }
+
+    #[inline]
     pub fn update_endpoint(&self, endpoint: Endpoint) {
         self.inner.update_endpoint(endpoint);
     }
 
     #[inline]
-    pub fn endpoint(&self) -> Option<Endpoint> {
-        self.inner.endpoint()
+    pub fn metrics(&self) -> PeerMetrics {
+        self.inner.monitor.metrics()
     }
 
     #[inline]
-    pub fn metrics(&self) -> PeerMetrics {
-        self.inner.monitor.metrics()
+    pub fn secret(&self) -> PeerStaticSecret {
+        self.inner.secret.clone()
     }
 
     /// Stop the peer and all its associated tasks.
@@ -261,12 +269,6 @@ where
     pub fn update_endpoint(&self, endpoint: Endpoint) {
         let mut guard = self.endpoint.write().unwrap();
         let _ = guard.insert(endpoint);
-    }
-
-    /// Return the endpoint of the peer.
-    #[inline]
-    pub fn endpoint(&self) -> Option<Endpoint> {
-        self.endpoint.read().unwrap().clone()
     }
 
     /// Send outbound data to the peer.

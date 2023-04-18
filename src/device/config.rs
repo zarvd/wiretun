@@ -1,3 +1,5 @@
+use crate::noise::crypto::LocalStaticSecret;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -19,7 +21,8 @@ use super::Cidr;
 pub struct DeviceConfig {
     pub private_key: [u8; 32],
     pub listen_port: u16,
-    pub peers: Vec<PeerConfig>,
+    pub fwmark: u32,
+    pub peers: HashMap<[u8; 32], PeerConfig>,
 }
 
 /// Configuration for a peer.
@@ -46,15 +49,14 @@ impl DeviceConfig {
     }
 
     #[inline(always)]
-    pub fn peers(mut self, peer: Vec<PeerConfig>) -> Self {
-        self.peers = peer;
+    pub fn peer(mut self, peer: PeerConfig) -> Self {
+        self.peers.insert(peer.public_key, peer);
         self
     }
 
     #[inline(always)]
-    pub fn peer(mut self, peer: PeerConfig) -> Self {
-        self.peers.push(peer);
-        self
+    pub fn local_secret(&self) -> LocalStaticSecret {
+        LocalStaticSecret::new(self.private_key)
     }
 }
 
