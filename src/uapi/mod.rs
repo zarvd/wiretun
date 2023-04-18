@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use tokio::net::UnixListener;
 use tracing::{debug, error};
 
-use crate::{DeviceHandle, Tun};
+use crate::{DeviceHandle, PeerConfig, Tun};
 
 const SOCKET_DIR: &str = "/var/run/wireguard";
 
@@ -82,7 +82,7 @@ where
     let mut metrics = device.metrics();
     let peers = cfg
         .peers
-        .into_iter()
+        .into_values()
         .map(|p| {
             let m = metrics.peers.remove(&p.public_key).unwrap();
             GetPeer {
@@ -114,8 +114,8 @@ where
     if req.replace_peers {
         device.clear_peers();
     }
-    if let Some(_private_key) = req.private_key {
-        // unsupoorted
+    if let Some(private_key) = req.private_key {
+        device.update_private_key(private_key);
     }
     if let Some(port) = req.listen_port {
         device.update_listen_port(port).await.map_err(|e| {
@@ -127,31 +127,35 @@ where
         // unsupoorted
     }
 
+    let cfg = device.config();
     for peer in req.peers {
         if peer.remove {
             device.remove_peer(&peer.public_key);
             break;
         }
-        match device.peer_config(&peer.public_key) {
+        match cfg.peers.get(&peer.public_key) {
             Some(cfg) => {
                 // to update
                 if let Some(endpoint) = peer.endpoint {
                     device.update_peer_endpoint(&peer.public_key, endpoint);
                 }
-                let mut allowed_ips = cfg.allowed_ips.into_iter().collect::<HashSet<_>>();
+                let mut allowed_ips = cfg.allowed_ips.clone().into_iter().collect::<HashSet<_>>();
                 if peer.replace_allowed_ips {
                     allowed_ips.clear();
                 }
                 for ip in peer.allowed_ips {
                     allowed_ips.insert(ip);
                 }
-                device.update_allowed_ips_by_peer(
-                    &peer.public_key,
-                    allowed_ips.into_iter().collect(),
-                );
+                device.update_peer_allowed_ips(&peer.public_key, allowed_ips.into_iter().collect());
             }
             None if !peer.update_only => {
-                device.insert_peer(peer.public_key, peer.allowed_ips, peer.endpoint);
+                device.insert_peer(PeerConfig {
+                    public_key: peer.public_key,
+                    allowed_ips: peer.allowed_ips,
+                    endpoint: peer.endpoint,
+                    preshared_key: None,
+                    persistent_keepalive: None,
+                });
             }
             _ => {}
         }

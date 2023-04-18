@@ -112,7 +112,7 @@ impl<T> CidrTable<T> {
         self.table.longest_match(ip).map(|(_, v)| v)
     }
 
-    pub fn remove(&mut self, cidr: Cidr) {
+    pub fn remove(&mut self, cidr: &Cidr) {
         self.table.remove(cidr.0);
     }
 

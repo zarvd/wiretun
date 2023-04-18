@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
-use std::sync::RwLock;
 
 use tokio_util::sync::CancellationToken;
 
@@ -8,8 +7,8 @@ use super::cidr::{Cidr, CidrTable};
 use super::session::{Session, SessionIndex};
 use super::{Peer, PeerMetrics};
 use crate::device::inbound::Endpoint;
-use crate::noise::crypto::LocalStaticSecret;
-use crate::Tun;
+use crate::noise::crypto::PeerStaticSecret;
+use crate::{PeerConfig, Tun};
 
 #[derive(Clone)]
 struct PeerEntry<T>
@@ -26,68 +25,40 @@ where
 {
     token: CancellationToken,
     tun: T,
-    secret: LocalStaticSecret,
     sessions: SessionIndex,
-    peers: RwLock<HashMap<[u8; 32], PeerEntry<T>>>,
-    ips: RwLock<CidrTable<Peer<T>>>,
+    peers: HashMap<[u8; 32], PeerEntry<T>>,
+    ips: CidrTable<Peer<T>>,
 }
 
 impl<T> PeerIndex<T>
 where
     T: Tun + 'static,
 {
-    pub fn new(token: CancellationToken, tun: T, secret: LocalStaticSecret) -> Self {
+    pub fn new(token: CancellationToken, tun: T) -> Self {
         Self {
             token,
             tun,
-            secret,
-            peers: RwLock::new(HashMap::new()),
+            peers: HashMap::new(),
             sessions: SessionIndex::new(),
-            ips: RwLock::new(CidrTable::new()),
+            ips: CidrTable::new(),
         }
     }
 
-    pub fn insert(
-        &self,
-        public_key: [u8; 32],
-        allowed_ips: Vec<Cidr>,
-        endpoint: Option<Endpoint>,
-    ) -> Peer<T> {
-        let mut peers = self.peers.write().unwrap();
-        let entry = peers.entry(public_key).or_insert_with(|| {
-            let p = Peer::new(
-                self.token.child_token(),
-                self.tun.clone(),
-                self.secret.clone().with_peer(public_key),
-                self.sessions.clone(),
-                endpoint,
-            );
-            PeerEntry {
-                peer: p,
-                allowed_ips: allowed_ips.clone().into_iter().collect(),
-            }
-        });
-
-        let mut ips = self.ips.write().unwrap();
-        for cidr in allowed_ips {
-            ips.insert(cidr, entry.peer.clone());
-        }
-
-        entry.peer.clone()
+    pub fn metrics(&self) -> HashMap<[u8; 32], PeerMetrics> {
+        self.peers
+            .iter()
+            .map(|(pub_key, entry)| (*pub_key, entry.peer.metrics()))
+            .collect()
     }
 
     /// Returns the peer that matches the given public key.
     pub fn get_by_key(&self, public_key: &[u8; 32]) -> Option<Peer<T>> {
-        self.peers
-            .read()
-            .unwrap()
-            .get(public_key)
-            .map(|e| e.peer.clone())
+        self.peers.get(public_key).map(|e| e.peer.clone())
     }
 
     /// Returns the peer that matches the given IP address.
     pub fn get_by_ip(&self, ip: IpAddr) -> Option<Peer<T>> {
-        self.ips.read().unwrap().get_by_ip(ip).cloned()
+        self.ips.get_by_ip(ip).cloned()
     }
 
     /// Returns the peer that matches the index of the session.
@@ -100,60 +71,86 @@ where
         }
     }
 
-    pub fn update_allowed_ips_by_key(&self, public_key: &[u8; 32], allowed_ips: Vec<Cidr>) -> bool {
+    pub fn insert(
+        &mut self,
+        secret: PeerStaticSecret,
+        allowed_ips: Vec<Cidr>,
+        endpoint: Option<Endpoint>,
+    ) -> Peer<T> {
+        let entry = self
+            .peers
+            .entry(secret.public_key().to_bytes())
+            .or_insert_with(|| PeerEntry {
+                peer: Peer::new(
+                    self.token.child_token(),
+                    self.tun.clone(),
+                    secret,
+                    self.sessions.clone(),
+                    endpoint,
+                ),
+                allowed_ips: allowed_ips.clone().into_iter().collect(),
+            });
+
+        for cidr in allowed_ips {
+            self.ips.insert(cidr, entry.peer.clone());
+        }
+
+        entry.peer.clone()
+    }
+
+    pub fn update_allowed_ips_by_key(
+        &mut self,
+        public_key: &[u8; 32],
+        allowed_ips: Vec<Cidr>,
+    ) -> bool {
         let allowed_ips = allowed_ips.into_iter().collect();
 
-        match self.peers.write().unwrap().get_mut(public_key) {
-            Some(entry) => {
-                if entry.allowed_ips == allowed_ips {
-                    return false;
-                }
-                let mut ips = self.ips.write().unwrap();
-                ips.clear();
-                for cidr in allowed_ips.clone() {
-                    ips.insert(cidr, entry.peer.clone());
-                }
-                entry.allowed_ips = allowed_ips;
-                true
+        if let Some(entry) = self.peers.get_mut(public_key) {
+            if entry.allowed_ips == allowed_ips {
+                return false;
             }
-            None => false,
+            for cidr in &entry.allowed_ips {
+                self.ips.remove(cidr);
+            }
+            for cidr in allowed_ips.clone() {
+                self.ips.insert(cidr, entry.peer.clone());
+            }
+            entry.allowed_ips = allowed_ips;
+            true
+        } else {
+            false
         }
     }
 
-    pub fn remove_by_key(&self, public_key: &[u8; 32]) {
-        let mut peers = self.peers.write().unwrap();
-        if let Some(entry) = peers.remove(public_key) {
+    pub fn remove_by_key(&mut self, public_key: &[u8; 32]) {
+        if let Some(entry) = self.peers.remove(public_key) {
             entry.peer.stop();
 
-            {
-                let mut ips = self.ips.write().unwrap();
-                for cidr in entry.allowed_ips {
-                    ips.remove(cidr);
-                }
+            for cidr in entry.allowed_ips {
+                self.ips.remove(&cidr);
             }
 
             self.sessions.remove_by_key(public_key);
         }
     }
 
-    pub fn clear(&self) {
-        let mut peers = self.peers.write().unwrap();
-        let mut ips = self.ips.write().unwrap();
-
-        peers.values().for_each(|entry| entry.peer.stop());
-        peers.clear();
-
-        ips.clear();
-
+    pub fn clear(&mut self) {
+        self.peers.values().for_each(|entry| entry.peer.stop());
+        self.peers.clear();
+        self.ips.clear();
         self.sessions.clear();
     }
 
-    pub fn metrics(&self) -> HashMap<[u8; 32], PeerMetrics> {
+    pub fn to_vec(&self) -> Vec<PeerConfig> {
         self.peers
-            .read()
-            .unwrap()
-            .iter()
-            .map(|(pub_key, entry)| (*pub_key, entry.peer.metrics()))
+            .values()
+            .map(|entry| PeerConfig {
+                public_key: entry.peer.secret().public_key().to_bytes(),
+                allowed_ips: entry.allowed_ips.clone().into_iter().collect(),
+                endpoint: entry.peer.endpoint().map(|endpoint| endpoint.dst()),
+                preshared_key: None,
+                persistent_keepalive: None,
+            })
             .collect()
     }
 }
