@@ -1,2 +1,3 @@
 **/*.log
+/Cargo.lock
 wiretun-native-tun
