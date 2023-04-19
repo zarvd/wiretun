@@ -68,10 +68,6 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
-      - name: Set up Homebrew
-        if: ${{ matrix.os }} == 'macos-latest'
-        id: set-up-homebrew
-        uses: Homebrew/actions/setup-homebrew@master
       - name: Install rust toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -80,6 +76,18 @@ jobs:
           override: true
       - name: Install just
         uses: extractions/setup-just@v1
+      - name: Install WireGuard tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt update -y
+          sudo apt install -y wireguard
+      - name: Set up Homebrew (MacOS)
+        if: runner.os == 'macOS'
+        uses: Homebrew/actions/setup-homebrew@master
+      - name: Install WireGuard tools (MacOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install wireguard-tools
       - name: Run tests
         run: |
           just integration-test-${{ matrix.scenario }}

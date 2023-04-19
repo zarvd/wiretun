@@ -23,22 +23,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-install_wireguard() {
-  if [[ "$OSTYPE" == "darwin"* ]]; then
-    brew install wireguard-tools
-  elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    apt install wireguard
-  else
-    echo "Unsupported OS: ${OSTYPE}"
-    exit 1
-  fi
-}
-
 start_peer1() {
   if ! command -v wg-quick &> /dev/null
   then
-    echo "wg-quick not installed, try to install it"
-    install_wireguard
+    echo "wg-quick not installed, please install it first"
+    exit 1
   fi
 
   cat > utun.conf <<-EOF
