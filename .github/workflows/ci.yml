@@ -62,6 +62,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
+        scenario: [native-tun, wiretun-to-wiretun, wireguard-to-wiretun]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
@@ -75,6 +76,18 @@ jobs:
           override: true
       - name: Install just
         uses: extractions/setup-just@v1
+      - name: Install WireGuard tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt update -y
+          sudo apt install -y wireguard
+      - name: Set up Homebrew (MacOS)
+        if: runner.os == 'macOS'
+        uses: Homebrew/actions/setup-homebrew@master
+      - name: Install WireGuard tools (MacOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install wireguard-tools
       - name: Run tests
         run: |
-          just integration-test
+          just integration-test-${{ matrix.scenario }}
