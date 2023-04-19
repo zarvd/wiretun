@@ -1,22 +1,25 @@
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
+use std::sync::Arc;
 
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use super::cidr::{Cidr, CidrTable};
 use super::session::{Session, SessionIndex};
-use super::{Peer, PeerMetrics};
+use super::{Peer, PeerHandle, PeerMetrics};
 use crate::device::inbound::Endpoint;
 use crate::noise::crypto::PeerStaticSecret;
 use crate::{PeerConfig, Tun};
 
-#[derive(Clone)]
 struct PeerEntry<T>
 where
     T: Tun + 'static,
 {
-    peer: Peer<T>,
+    peer: Arc<Peer<T>>,
     allowed_ips: HashSet<Cidr>,
+    #[allow(unused)]
+    handle: PeerHandle,
 }
 
 pub(crate) struct PeerIndex<T>
@@ -27,7 +30,7 @@ where
     tun: T,
     sessions: SessionIndex,
     peers: HashMap<[u8; 32], PeerEntry<T>>,
-    ips: CidrTable<Peer<T>>,
+    ips: CidrTable<Arc<Peer<T>>>,
 }
 
 impl<T> PeerIndex<T>
@@ -52,17 +55,17 @@ where
     }
 
     /// Returns the peer that matches the given public key.
-    pub fn get_by_key(&self, public_key: &[u8; 32]) -> Option<Peer<T>> {
-        self.peers.get(public_key).map(|e| e.peer.clone())
+    pub fn get_by_key(&self, public_key: &[u8; 32]) -> Option<Arc<Peer<T>>> {
+        self.peers.get(public_key).map(|e| Arc::clone(&e.peer))
     }
 
     /// Returns the peer that matches the given IP address.
-    pub fn get_by_ip(&self, ip: IpAddr) -> Option<Peer<T>> {
+    pub fn get_by_ip(&self, ip: IpAddr) -> Option<Arc<Peer<T>>> {
         self.ips.get_by_ip(ip).cloned()
     }
 
     /// Returns the peer that matches the index of the session.
-    pub fn get_session_by_index(&self, i: u32) -> Option<(Session, Peer<T>)> {
+    pub fn get_session_by_index(&self, i: u32) -> Option<(Session, Arc<Peer<T>>)> {
         match self.sessions.get_by_index(i) {
             Some(session) => self
                 .get_by_key(session.secret().public_key().as_bytes())
@@ -76,26 +79,40 @@ where
         secret: PeerStaticSecret,
         allowed_ips: Vec<Cidr>,
         endpoint: Option<Endpoint>,
-    ) -> Peer<T> {
+    ) -> Arc<Peer<T>> {
         let entry = self
             .peers
             .entry(secret.public_key().to_bytes())
-            .or_insert_with(|| PeerEntry {
-                peer: Peer::new(
-                    self.token.child_token(),
+            .or_insert_with(|| {
+                let (inbound_tx, inbound_rx) = mpsc::channel(256);
+                let (outbound_tx, outbound_rx) = mpsc::channel(256);
+                let peer = Arc::new(Peer::new(
                     self.tun.clone(),
                     secret,
                     self.sessions.clone(),
                     endpoint,
-                ),
-                allowed_ips: allowed_ips.clone().into_iter().collect(),
+                    inbound_tx,
+                    outbound_tx,
+                ));
+                let allowed_ips = allowed_ips.clone().into_iter().collect();
+                let handle = PeerHandle::spawn(
+                    self.token.child_token(),
+                    Arc::clone(&peer),
+                    inbound_rx,
+                    outbound_rx,
+                );
+                PeerEntry {
+                    peer,
+                    allowed_ips,
+                    handle,
+                }
             });
 
         for cidr in allowed_ips {
-            self.ips.insert(cidr, entry.peer.clone());
+            self.ips.insert(cidr, Arc::clone(&entry.peer));
         }
 
-        entry.peer.clone()
+        Arc::clone(&entry.peer)
     }
 
     pub fn update_allowed_ips_by_key(
@@ -113,7 +130,7 @@ where
                 self.ips.remove(cidr);
             }
             for cidr in allowed_ips.clone() {
-                self.ips.insert(cidr, entry.peer.clone());
+                self.ips.insert(cidr, Arc::clone(&entry.peer));
             }
             entry.allowed_ips = allowed_ips;
             true
@@ -124,18 +141,14 @@ where
 
     pub fn remove_by_key(&mut self, public_key: &[u8; 32]) {
         if let Some(entry) = self.peers.remove(public_key) {
-            entry.peer.stop();
-
             for cidr in entry.allowed_ips {
                 self.ips.remove(&cidr);
             }
-
             self.sessions.remove_by_key(public_key);
         }
     }
 
     pub fn clear(&mut self) {
-        self.peers.values().for_each(|entry| entry.peer.stop());
         self.peers.clear();
         self.ips.clear();
         self.sessions.clear();
