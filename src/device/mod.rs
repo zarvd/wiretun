@@ -1,5 +1,6 @@
 mod config;
 mod error;
+mod handle;
 mod inbound;
 mod metrics;
 mod peer;
@@ -10,24 +11,22 @@ pub use config::{DeviceConfig, PeerConfig};
 pub use error::Error;
 pub use metrics::DeviceMetrics;
 pub use peer::{Cidr, ParseCidrError, PeerMetrics};
+use std::collections::HashSet;
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
-use futures::future::join_all;
-use futures::StreamExt;
 use tokio::sync::Mutex as AsyncMutex;
-use tokio::task::JoinHandle;
-use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, warn};
 
-use crate::device::peer::InboundEvent;
+use tokio_util::sync::CancellationToken;
+use tracing::debug;
+
 use crate::noise::crypto::LocalStaticSecret;
-use crate::noise::handshake::{Cookie, IncomingInitiation};
-use crate::noise::protocol;
-use crate::noise::protocol::Message;
+use crate::noise::handshake::Cookie;
+
 use crate::Tun;
-use inbound::{Endpoint, Inbound, Listener};
+use handle::DeviceHandle;
+use inbound::{Endpoint, Inbound};
 use peer::{Peer, PeerIndex, Session};
 use rate_limiter::RateLimiter;
 
@@ -57,7 +56,7 @@ impl Settings {
     }
 }
 
-struct Inner<T>
+pub(super) struct DeviceInner<T>
 where
     T: Tun + 'static,
 {
@@ -67,7 +66,7 @@ where
     rate_limiter: RateLimiter,
 }
 
-impl<T> Inner<T>
+impl<T> DeviceInner<T>
 where
     T: Tun + 'static,
 {
@@ -88,7 +87,7 @@ where
             settings.secret = LocalStaticSecret::new(private_key);
         }
         let peers = self.peers.lock().unwrap();
-        self.reset_peers(peers.to_vec());
+        self.reset_peers(peers.to_config());
     }
 
     #[inline]
@@ -141,83 +140,9 @@ where
     }
 
     #[inline]
-    pub fn update_peer_allowed_ips(&self, public_key: &[u8; 32], ips: Vec<Cidr>) {
+    pub fn update_peer_allowed_ips(&self, public_key: &[u8; 32], ips: HashSet<Cidr>) {
         let mut peers = self.peers.lock().unwrap();
         peers.update_allowed_ips_by_key(public_key, ips);
-    }
-}
-
-struct Handle {
-    token: CancellationToken,
-    inbound_handles: (CancellationToken, Vec<JoinHandle<()>>),
-    outbound_handles: (CancellationToken, Vec<JoinHandle<()>>),
-}
-
-impl Handle {
-    pub async fn spawn<T>(token: CancellationToken, inner: Arc<Inner<T>>) -> Self
-    where
-        T: Tun + 'static,
-    {
-        let mut me = Self {
-            token: token.clone(),
-            inbound_handles: (token.child_token(), vec![]),
-            outbound_handles: (token.child_token(), vec![]),
-        };
-        me.restart_inbound(Arc::clone(&inner)).await;
-        me.restart_outbound(Arc::clone(&inner)).await;
-        me
-    }
-
-    pub async fn restart_inbound<T>(&mut self, inner: Arc<Inner<T>>)
-    where
-        T: Tun + 'static,
-    {
-        let handles: Vec<_> = self.inbound_handles.1.drain(..).collect();
-        join_all(handles).await;
-
-        let token = self.token.child_token();
-        let handles = vec![
-            tokio::spawn(loop_inbound_v4(Arc::clone(&inner), token.child_token())),
-            tokio::spawn(loop_inbound_v6(Arc::clone(&inner), token.child_token())),
-        ];
-        self.inbound_handles = (token, handles);
-    }
-
-    pub async fn restart_outbound<T>(&mut self, inner: Arc<Inner<T>>)
-    where
-        T: Tun + 'static,
-    {
-        let handles: Vec<_> = self.outbound_handles.1.drain(..).collect();
-        join_all(handles).await;
-
-        let token = self.token.child_token();
-        let handles = vec![tokio::spawn(loop_outbound(
-            Arc::clone(&inner),
-            token.child_token(),
-        ))];
-        self.outbound_handles = (token, handles);
-    }
-
-    pub fn abort(&self) {
-        self.inbound_handles.0.cancel();
-        self.outbound_handles.0.cancel();
-    }
-
-    pub async fn stop(&mut self) {
-        self.abort();
-
-        // Wait until all background tasks are done.
-        let mut handles = vec![];
-        handles.extend(&mut self.inbound_handles.1.drain(..));
-        handles.extend(&mut self.outbound_handles.1.drain(..));
-
-        join_all(handles).await;
-    }
-}
-
-impl Drop for Handle {
-    fn drop(&mut self) {
-        self.token.cancel();
     }
 }
 
@@ -243,8 +168,8 @@ where
     T: Tun + 'static,
 {
     token: CancellationToken, // The root token
-    inner: Arc<Inner<T>>,
-    handle: Arc<AsyncMutex<Handle>>,
+    inner: Arc<DeviceInner<T>>,
+    handle: Arc<AsyncMutex<DeviceHandle>>,
 }
 
 #[cfg(feature = "native")]
@@ -267,7 +192,7 @@ where
             let peers = Mutex::new(PeerIndex::new(token.child_token(), tun.clone()));
             let rate_limiter = RateLimiter::new(1_000);
 
-            Arc::new(Inner {
+            Arc::new(DeviceInner {
                 tun,
                 settings,
                 peers,
@@ -275,7 +200,7 @@ where
             })
         };
         let handle = Arc::new(AsyncMutex::new(
-            Handle::spawn(token.child_token(), Arc::clone(&inner)).await,
+            DeviceHandle::spawn(token.child_token(), Arc::clone(&inner)).await,
         ));
 
         inner.reset_peers(cfg.peers.into_values().collect());
@@ -288,8 +213,8 @@ where
     }
 
     #[inline]
-    pub fn handle(&self) -> DeviceHandle<T> {
-        DeviceHandle {
+    pub fn control(&self) -> DeviceControl<T> {
+        DeviceControl {
             inner: Arc::clone(&self.inner),
             handle: Arc::clone(&self.handle),
         }
@@ -326,24 +251,24 @@ where
 ///     let cfg = DeviceConfig::default();
 ///     let device = Device::native("utun", cfg).await?;
 ///
-///     let handle = device.handle();
+///     let ctrl = device.control();
 ///
-///     let _ = handle.tun_name();  // fetch the name of the underlying TUN device
-///     let _ = handle.config();    // fetch the configuration of the device
-///     let _ = handle.metrics();   // fetch the metrics of the device
+///     let _ = ctrl.tun_name();  // fetch the name of the underlying TUN device
+///     let _ = ctrl.config();    // fetch the configuration of the device
+///     let _ = ctrl.metrics();   // fetch the metrics of the device
 ///
 ///     Ok(())
 /// }
 #[derive(Clone)]
-pub struct DeviceHandle<T>
+pub struct DeviceControl<T>
 where
     T: Tun + 'static,
 {
-    inner: Arc<Inner<T>>,
-    handle: Arc<AsyncMutex<Handle>>,
+    inner: Arc<DeviceInner<T>>,
+    handle: Arc<AsyncMutex<DeviceHandle>>,
 }
 
-impl<T> DeviceHandle<T>
+impl<T> DeviceControl<T>
 where
     T: Tun + 'static,
 {
@@ -363,7 +288,7 @@ where
             listen_port: settings.listen_port(),
             fwmark: settings.fwmark,
             peers: peers
-                .to_vec()
+                .to_config()
                 .into_iter()
                 .map(|p| (p.public_key, p))
                 .collect(),
@@ -414,206 +339,12 @@ where
     }
 
     /// Updates the allowed IPs of a peer.
-    pub fn update_peer_allowed_ips(&self, public_key: &[u8; 32], allowed_ips: Vec<Cidr>) {
+    pub fn update_peer_allowed_ips(&self, public_key: &[u8; 32], allowed_ips: HashSet<Cidr>) {
         self.inner.update_peer_allowed_ips(public_key, allowed_ips);
     }
 
     /// Removes all peers from the device.
     pub fn clear_peers(&self) {
         self.inner.reset_peers(vec![]);
-    }
-}
-
-#[inline(always)]
-async fn loop_inbound_v4<T>(inner: Arc<Inner<T>>, token: CancellationToken)
-where
-    T: Tun + 'static,
-{
-    let listener = inner.settings.lock().unwrap().inbound.v4();
-
-    loop_inbound(inner, listener, token).await;
-}
-
-#[inline(always)]
-async fn loop_inbound_v6<T>(inner: Arc<Inner<T>>, token: CancellationToken)
-where
-    T: Tun + 'static,
-{
-    let listener = inner.settings.lock().unwrap().inbound.v6();
-    loop_inbound(inner, listener, token).await;
-}
-
-async fn loop_inbound<T>(inner: Arc<Inner<T>>, mut listener: Listener, token: CancellationToken)
-where
-    T: Tun + 'static,
-{
-    debug!("starting inbound loop for {}", listener);
-    let (secret, cookie) = {
-        let settings = inner.settings.lock().unwrap();
-        (settings.secret.clone(), Arc::clone(&settings.cookie))
-    };
-
-    loop {
-        tokio::select! {
-            _ = token.cancelled() => {
-                debug!("stopping outbound loop for {}", listener);
-                return;
-            }
-            data = listener.next() => {
-                if let Some((endpoint, payload)) = data {
-                    tick_inbound(Arc::clone(&inner), &secret, Arc::clone(&cookie), endpoint, payload).await;
-                }
-            }
-        }
-    }
-}
-
-async fn tick_inbound<T>(
-    inner: Arc<Inner<T>>,
-    secret: &LocalStaticSecret,
-    cookie: Arc<Cookie>,
-    endpoint: Endpoint,
-    payload: Vec<u8>,
-) where
-    T: Tun + 'static,
-{
-    if Message::is_handshake(&payload) {
-        if !cookie.validate_mac1(&payload) {
-            debug!("invalid mac1");
-            return;
-        }
-
-        if !inner.rate_limiter.fetch_token() {
-            debug!("rate limited");
-            if !cookie.validate_mac2(&payload) {
-                debug!("invalid mac2");
-                return;
-            }
-            debug!("try to send cookie reply");
-            let reply = cookie.generate_cookie_reply(&payload, endpoint.dst());
-            endpoint.send(&reply).await.unwrap();
-            return;
-        }
-    }
-
-    match Message::parse(&payload) {
-        Ok(Message::HandshakeInitiation(p)) => {
-            let initiation = IncomingInitiation::parse(secret, &p).unwrap_or_else(|_| todo!());
-            if let Some(peer) = inner.get_peer_by_key(initiation.static_public_key.as_bytes()) {
-                peer.handle_inbound(InboundEvent::HanshakeInitiation {
-                    endpoint,
-                    initiation,
-                })
-                .await;
-            }
-        }
-        Ok(msg) => {
-            let receiver_index = match &msg {
-                Message::HandshakeResponse(p) => p.receiver_index,
-                Message::CookieReply(p) => p.receiver_index,
-                Message::TransportData(p) => p.receiver_index,
-                _ => unreachable!(),
-            };
-            if let Some((session, peer)) = inner.get_session_by_index(receiver_index) {
-                match msg {
-                    Message::HandshakeResponse(packet) => {
-                        peer.handle_inbound(InboundEvent::HandshakeResponse {
-                            endpoint,
-                            packet,
-                            session,
-                        })
-                        .await;
-                    }
-                    Message::CookieReply(packet) => {
-                        peer.handle_inbound(InboundEvent::CookieReply {
-                            endpoint,
-                            packet,
-                            session,
-                        })
-                        .await;
-                    }
-                    Message::TransportData(packet) => {
-                        if packet.counter > protocol::REJECT_AFTER_MESSAGES {
-                            warn!("received too many messages from peer [index={receiver_index}]");
-                            return;
-                        }
-
-                        peer.handle_inbound(InboundEvent::TransportData {
-                            endpoint,
-                            packet,
-                            session,
-                        })
-                        .await;
-                    }
-                    _ => unreachable!(),
-                }
-            } else {
-                warn!("received message from unknown peer [index={receiver_index}]");
-            }
-        }
-        Err(e) => {
-            warn!("failed to parse message type: {:?}", e);
-        }
-    }
-}
-
-async fn loop_outbound<T>(inner: Arc<Inner<T>>, token: CancellationToken)
-where
-    T: Tun + 'static,
-{
-    debug!("starting outbound loop");
-    loop {
-        tokio::select! {
-            _ = token.cancelled() => {
-                debug!("stopping inbound loop");
-                return;
-            }
-            _ = tick_outbound(Arc::clone(&inner)) => {}
-        }
-    }
-}
-
-async fn tick_outbound<T>(inner: Arc<Inner<T>>)
-where
-    T: Tun + 'static,
-{
-    const IPV4_HEADER_LEN: usize = 20;
-    const IPV6_HEADER_LEN: usize = 40;
-
-    match inner.tun.recv().await {
-        Ok(buf) => {
-            let dst = {
-                match buf[0] & 0xF0 {
-                    0x40 if buf.len() < IPV4_HEADER_LEN => return,
-                    0x40 => {
-                        let addr: [u8; 4] = buf[16..20].try_into().unwrap();
-                        IpAddr::from(Ipv4Addr::from(addr))
-                    }
-                    0x60 if buf.len() < IPV6_HEADER_LEN => return,
-                    0x60 => {
-                        let addr: [u8; 16] = buf[24..40].try_into().unwrap();
-                        IpAddr::from(Ipv6Addr::from(addr))
-                    }
-                    n => {
-                        debug!("unknown IP version: {}", n);
-                        return;
-                    }
-                }
-            };
-
-            debug!("trying to send packet to {}", dst);
-
-            let peer = inner.peers.lock().unwrap().get_by_ip(dst);
-
-            if let Some(peer) = peer {
-                debug!("sending packet[{}] to {dst}", buf.len());
-                peer.stage_outbound(buf).await
-            } else {
-                warn!("no peer found for {dst}");
-            }
-        }
-        Err(e) => {
-            error!("TUN read error: {}", e)
-        }
     }
 }

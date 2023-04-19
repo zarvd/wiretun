@@ -5,6 +5,15 @@ default:
 build:
     cargo build
 
+# Format code with rust
+fmt:
+    cargo fmt
+
+# Lint code with clippy
+lint:
+    cargo fmt --all -- --check
+    cargo clippy --all-targets --all-features
+
 # Run unit tests against the current platform
 unit-test:
     cargo nextest run
@@ -40,10 +49,3 @@ integration-test-wireguard-to-wiretun:
     sudo ./run-test.sh
     popd
 
-# Format code with rust
-fmt:
-    cargo fmt
-
-# Lint code with clippy
-lint:
-    cargo clippy --all-targets --all-features

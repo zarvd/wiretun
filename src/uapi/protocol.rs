@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::time::SystemTime;
 
@@ -35,7 +36,7 @@ pub struct SetPeer {
     pub endpoint: Option<SocketAddr>,
     pub persistent_keepalive_interval: Option<u32>,
     pub replace_allowed_ips: bool,
-    pub allowed_ips: Vec<Cidr>,
+    pub allowed_ips: HashSet<Cidr>,
 }
 
 pub struct GetDevice {
@@ -48,7 +49,7 @@ pub struct GetDevice {
 pub struct GetPeer {
     pub public_key: [u8; 32],
     pub psk: [u8; 32],
-    pub allowed_ips: Vec<Cidr>,
+    pub allowed_ips: HashSet<Cidr>,
     pub endpoint: Option<SocketAddr>,
     pub last_handshake_at: SystemTime,
     pub tx_bytes: u64,

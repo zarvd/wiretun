@@ -77,7 +77,7 @@ where
     pub fn insert(
         &mut self,
         secret: PeerStaticSecret,
-        allowed_ips: Vec<Cidr>,
+        allowed_ips: HashSet<Cidr>,
         endpoint: Option<Endpoint>,
     ) -> Arc<Peer<T>> {
         let entry = self
@@ -94,7 +94,6 @@ where
                     inbound_tx,
                     outbound_tx,
                 ));
-                let allowed_ips = allowed_ips.clone().into_iter().collect();
                 let handle = PeerHandle::spawn(
                     self.token.child_token(),
                     Arc::clone(&peer),
@@ -108,7 +107,7 @@ where
                 }
             });
 
-        for cidr in allowed_ips {
+        for &cidr in &entry.allowed_ips {
             self.ips.insert(cidr, Arc::clone(&entry.peer));
         }
 
@@ -118,10 +117,8 @@ where
     pub fn update_allowed_ips_by_key(
         &mut self,
         public_key: &[u8; 32],
-        allowed_ips: Vec<Cidr>,
+        allowed_ips: HashSet<Cidr>,
     ) -> bool {
-        let allowed_ips = allowed_ips.into_iter().collect();
-
         if let Some(entry) = self.peers.get_mut(public_key) {
             if entry.allowed_ips == allowed_ips {
                 return false;
@@ -154,12 +151,12 @@ where
         self.sessions.clear();
     }
 
-    pub fn to_vec(&self) -> Vec<PeerConfig> {
+    pub fn to_config(&self) -> Vec<PeerConfig> {
         self.peers
             .values()
             .map(|entry| PeerConfig {
                 public_key: entry.peer.secret().public_key().to_bytes(),
-                allowed_ips: entry.allowed_ips.clone().into_iter().collect(),
+                allowed_ips: entry.allowed_ips.clone(),
                 endpoint: entry.peer.endpoint().map(|endpoint| endpoint.dst()),
                 preshared_key: None,
                 persistent_keepalive: None,

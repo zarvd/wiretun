@@ -1,4 +1,5 @@
 use bytes::Bytes;
+use std::collections::HashSet;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::unix::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::UnixStream;
@@ -103,7 +104,7 @@ fn parse_set_request(s: &str) -> Result<SetDevice, Error> {
                     endpoint: None,
                     persistent_keepalive_interval: None,
                     replace_allowed_ips: false,
-                    allowed_ips: vec![],
+                    allowed_ips: HashSet::new(),
                 });
 
                 set_device
@@ -180,7 +181,7 @@ fn parse_set_request(s: &str) -> Result<SetDevice, Error> {
                     .last_mut()
                     .ok_or(Error::InvalidProtocol)?
                     .allowed_ips
-                    .push(v.parse().map_err(|_| Error::InvalidProtocol)?);
+                    .insert(v.parse().map_err(|_| Error::InvalidProtocol)?);
             }
             _ => return Err(Error::InvalidProtocol),
         }
@@ -254,7 +255,7 @@ remove=true",
                         endpoint: Some("[abcd:23::33%2]:51820".parse().unwrap()),
                         persistent_keepalive_interval: None,
                         replace_allowed_ips: true,
-                        allowed_ips: vec!["192.168.4.4/32".parse().unwrap()],
+                        allowed_ips: ["192.168.4.4/32".parse().unwrap()].into_iter().collect(),
                     },
                     SetPeer {
                         public_key: crypto::decode_from_hex(
@@ -268,7 +269,7 @@ remove=true",
                         endpoint: Some("182.122.22.19:3233".parse().unwrap()),
                         persistent_keepalive_interval: Some(111),
                         replace_allowed_ips: true,
-                        allowed_ips: vec!["192.168.4.6/32".parse().unwrap()],
+                        allowed_ips: ["192.168.4.6/32".parse().unwrap()].into_iter().collect(),
                     },
                     SetPeer {
                         public_key: crypto::decode_from_hex(
@@ -282,10 +283,12 @@ remove=true",
                         endpoint: Some("5.152.198.39:51820".parse().unwrap()),
                         persistent_keepalive_interval: None,
                         replace_allowed_ips: true,
-                        allowed_ips: vec![
+                        allowed_ips: [
                             "192.168.4.10/32".parse().unwrap(),
                             "192.168.4.11/32".parse().unwrap(),
-                        ],
+                        ]
+                        .into_iter()
+                        .collect(),
                     },
                     SetPeer {
                         public_key: crypto::decode_from_hex(
@@ -299,7 +302,7 @@ remove=true",
                         endpoint: None,
                         persistent_keepalive_interval: None,
                         replace_allowed_ips: false,
-                        allowed_ips: vec![],
+                        allowed_ips: [].into_iter().collect(),
                     }
                 ],
             }
