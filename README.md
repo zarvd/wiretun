@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
    let cfg = DeviceConfig::default()
        .listen_port(40001);
    let device = Device::native("utun88", cfg).await?;
-   uapi::bind_and_handle(device.handle()).await?;
+   uapi::bind_and_handle(device.control()).await?;
    Ok(())
 }
 ```
