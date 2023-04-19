@@ -21,6 +21,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, warn};
 
+use crate::device::peer::InboundEvent;
 use crate::noise::crypto::LocalStaticSecret;
 use crate::noise::handshake::{Cookie, IncomingInitiation};
 use crate::noise::protocol;
@@ -91,13 +92,13 @@ where
     }
 
     #[inline]
-    pub fn get_peer_by_key(&self, public_key: &[u8; 32]) -> Option<Peer<T>> {
+    pub fn get_peer_by_key(&self, public_key: &[u8; 32]) -> Option<Arc<Peer<T>>> {
         let index = self.peers.lock().unwrap();
         index.get_by_key(public_key)
     }
 
     #[inline]
-    pub fn get_session_by_index(&self, i: u32) -> Option<(Session, Peer<T>)> {
+    pub fn get_session_by_index(&self, i: u32) -> Option<(Session, Arc<Peer<T>>)> {
         let index = self.peers.lock().unwrap();
         index.get_session_by_index(i)
     }
@@ -499,7 +500,11 @@ async fn tick_inbound<T>(
         Ok(Message::HandshakeInitiation(p)) => {
             let initiation = IncomingInitiation::parse(secret, &p).unwrap_or_else(|_| todo!());
             if let Some(peer) = inner.get_peer_by_key(initiation.static_public_key.as_bytes()) {
-                peer.handle_handshake_initiation(endpoint, initiation).await;
+                peer.handle_inbound(InboundEvent::HanshakeInitiation {
+                    endpoint,
+                    initiation,
+                })
+                .await;
             }
         }
         Ok(msg) => {
@@ -511,19 +516,34 @@ async fn tick_inbound<T>(
             };
             if let Some((session, peer)) = inner.get_session_by_index(receiver_index) {
                 match msg {
-                    Message::HandshakeResponse(p) => {
-                        peer.handle_handshake_response(endpoint, p, session).await;
+                    Message::HandshakeResponse(packet) => {
+                        peer.handle_inbound(InboundEvent::HandshakeResponse {
+                            endpoint,
+                            packet,
+                            session,
+                        })
+                        .await;
                     }
-                    Message::CookieReply(p) => {
-                        peer.handle_cookie_reply(endpoint, p, session).await;
+                    Message::CookieReply(packet) => {
+                        peer.handle_inbound(InboundEvent::CookieReply {
+                            endpoint,
+                            packet,
+                            session,
+                        })
+                        .await;
                     }
-                    Message::TransportData(p) => {
-                        if p.counter > protocol::REJECT_AFTER_MESSAGES {
+                    Message::TransportData(packet) => {
+                        if packet.counter > protocol::REJECT_AFTER_MESSAGES {
                             warn!("received too many messages from peer [index={receiver_index}]");
                             return;
                         }
 
-                        peer.handle_transport_data(endpoint, p, session).await;
+                        peer.handle_inbound(InboundEvent::TransportData {
+                            endpoint,
+                            packet,
+                            session,
+                        })
+                        .await;
                     }
                     _ => unreachable!(),
                 }
