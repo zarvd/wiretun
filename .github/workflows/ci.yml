@@ -23,15 +23,11 @@ jobs:
           toolchain: stable
           components: clippy
           override: true
-      - name: Run cargo fmt
+      - name: Install just
+        uses: extractions/setup-just@v1
+      - name: Run lint
         run: |
-          cargo fmt --all -- --check
-      - name: Run cargo check
-        run: |
-          cargo check
-      - name: Run cargo clippy
-        run: |
-          cargo clippy
+          just lint
 
   unit-test:
     name: Unit test

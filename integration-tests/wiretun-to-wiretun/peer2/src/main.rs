@@ -49,7 +49,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let tun = StubTun::new();
     let device = Device::with_tun(tun, cfg).await?;
-    uapi::bind_and_handle(device.handle()).await?;
+    uapi::bind_and_handle(device.control()).await?;
     device.terminate().await;
 
     Ok(())

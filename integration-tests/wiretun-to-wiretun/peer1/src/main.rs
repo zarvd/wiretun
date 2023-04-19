@@ -42,7 +42,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let device = Device::native("utun44", cfg).await?;
 
-    uapi::bind_and_handle(device.handle()).await?;
+    uapi::bind_and_handle(device.control()).await?;
     device.terminate().await;
 
     Ok(())

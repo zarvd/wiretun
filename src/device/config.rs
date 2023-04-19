@@ -1,5 +1,5 @@
 use crate::noise::crypto::LocalStaticSecret;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -29,7 +29,7 @@ pub struct DeviceConfig {
 #[derive(Default, Clone)]
 pub struct PeerConfig {
     pub public_key: [u8; 32],
-    pub allowed_ips: Vec<Cidr>,
+    pub allowed_ips: HashSet<Cidr>,
     pub endpoint: Option<SocketAddr>,
     pub preshared_key: Option<[u8; 32]>,
     pub persistent_keepalive: Option<u16>,
@@ -68,14 +68,14 @@ impl PeerConfig {
     }
 
     #[inline(always)]
-    pub fn allowed_ips<I: Into<Cidr> + Clone>(mut self, ips: &[I]) -> Self {
-        self.allowed_ips = ips.iter().map(|i| i.clone().into()).collect();
+    pub fn allowed_ips<T: Into<Cidr>>(mut self, ips: impl IntoIterator<Item = T>) -> Self {
+        self.allowed_ips = ips.into_iter().map(|i| i.into()).collect();
         self
     }
 
     #[inline(always)]
     pub fn allowed_ip<I: Into<Cidr>>(mut self, ip: I) -> Self {
-        self.allowed_ips.push(ip.into());
+        self.allowed_ips.insert(ip.into());
         self
     }
 

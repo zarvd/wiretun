@@ -47,16 +47,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let device = Device::native("utun88", cfg).await?;
 
-    let handle = device.handle();
+    let ctrl = device.control();
     tokio::spawn(async move {
-        uapi::bind_and_handle(handle).await.unwrap();
+        uapi::bind_and_handle(ctrl).await.unwrap();
     });
 
-    let handle = device.handle();
+    let ctrl = device.control();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(10)).await;
         info!("Updating listen port");
-        let _ = handle.update_device(9991).await;
+        let _ = ctrl.update_device(9991).await;
     });
 
     tokio::signal::ctrl_c().await?;
