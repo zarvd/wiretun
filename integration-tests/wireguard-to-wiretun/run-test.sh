@@ -25,9 +25,9 @@ trap cleanup EXIT
 
 install_wireguard() {
   if [[ "$OSTYPE" == "darwin"* ]]; then
-    apt install wireguard
-  elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
     brew install wireguard-tools
+  elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    apt install wireguard
   else
     echo "Unsupported OS: ${OSTYPE}"
     exit 1
