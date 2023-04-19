@@ -62,11 +62,16 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
+        scenario: [native-tun, wiretun-to-wiretun, wireguard-to-wiretun]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
+      - name: Set up Homebrew
+        if: ${{ matrix.os }} == 'macos-latest'
+        id: set-up-homebrew
+        uses: Homebrew/actions/setup-homebrew@master
       - name: Install rust toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -77,4 +82,4 @@ jobs:
         uses: extractions/setup-just@v1
       - name: Run tests
         run: |
-          just integration-test
+          just integration-test-${{ matrix.scenario }}

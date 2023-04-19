@@ -1,0 +1,5 @@
+**/*.log
+utun.conf
+wiretun-peer1
+wiretun-peer2
+wiretun-tester

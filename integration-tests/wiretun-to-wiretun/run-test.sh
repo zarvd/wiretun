@@ -4,12 +4,6 @@ set -e
 
 TUN_NAME="utun44"
 
-# TODO: generate keys each time
-#export PEER1_KEY=$(wg genkey)
-#export PEER1_PUB=$(wg pubkey <<< ${PEER1_KEY})
-#export PEER2_KEY=$(wg genkey)
-#export PEER2_PUB=$(wg pubkey <<< ${PEER2_KEY})
-
 export PEER1_KEY=oLCiGZ7J6eMjpWgBIClVGPccrnopmqIOcia8HnDN/lY=
 export PEER1_PUB=jNMMQlzMwX0WeeWed9v6lINsBS3PhmF+/4fKbdfNZTA=
 export PEER2_KEY=UGyzBpReHMheRGbwr5vFJ1Yu8Xkkbn5ub3F8w22y3HA=
@@ -29,7 +23,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-run_for_macos() {
+start_peers() {
   ./wiretun-peer1 &> ${PEER1_LOG} &
   PEER1_PID=$!
   PIDS+=(${PEER1_PID})
@@ -39,7 +33,10 @@ run_for_macos() {
   PEER2_PID=$!
   PIDS+=(${PEER2_PID})
   echo "Peer2 PID: ${PEER2_PID}"
+}
 
+run_for_macos() {
+  start_peers
   # wait for peer1 and peer2 to start
   sleep 10
   # setup route and interface
@@ -53,16 +50,7 @@ run_for_macos() {
 }
 
 run_for_linux() {
-  ./wiretun-peer1 &> ${PEER1_LOG} &
-  PEER1_PID=$!
-  PIDS+=(${PEER1_PID})
-  echo "Peer1 PID: ${PEER1_PID}"
-
-  ./wiretun-peer2 &> ${PEER2_LOG} &
-  PEER2_PID=$!
-  PIDS+=(${PEER2_PID})
-  echo "Peer2 PID: ${PEER2_PID}"
-
+  start_peers
   # wait for peer1 and peer2 to start
   sleep 10
   # setup route and interface
