@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+set -x
 set -e
 
 # Require wireguard-tools is installed
@@ -18,7 +19,7 @@ cleanup() {
   done
 
   # stop peer1
-  wg-quick down ./utun.conf
+  wg-quick down ./utun.conf || true
   rm ./utun.conf
 }
 trap cleanup EXIT
@@ -35,17 +36,18 @@ PEER1_LISTEN_PORT=50081
 PEER1_KEY=oLCiGZ7J6eMjpWgBIClVGPccrnopmqIOcia8HnDN/lY=
 PEER1_PUB=jNMMQlzMwX0WeeWed9v6lINsBS3PhmF+/4fKbdfNZTA=
 
-PEER1_LISTEN_PORT=50082
+PEER2_LISTEN_PORT=50082
 PEER2_NAME=peer2-stub
 PEER2_KEY=UGyzBpReHMheRGbwr5vFJ1Yu8Xkkbn5ub3F8w22y3HA=
 PEER2_PUB=KlVx32ZygXCBRK2X7ko9qF5FCVfNACzKoAglNnbt1m4=
 
-PEER1_LISTEN_PORT=50083
+PEER3_LISTEN_PORT=50083
 PEER3_NAME=peer3-stub
 PEER3_KEY=cHpUPuuP4kMccJFQ5KoGJih1UuSzIF6TI5rfiuRCF3U=
 PEER3_PUB=h0h2J2HjfBPzLZ31UpkqvtNXYtCjWKT20xccF/B6Wgw=
-PEER3_PSK=/UwcSPg38hW/D9Y3tcS1FOV0K1wuURMbS0sesJEP5ak=
+PEER3_PSK=MSb1Drx0brNic2B2hAtkgKUgd4ypNbDMJZKyB4EFzlg=
 
+rm -rf log
 mkdir log
 PEER2_LOG=log/peer2.log
 PEER3_LOG=log/peer3.log
@@ -73,12 +75,18 @@ EOF
 start_peer2() {
   ./bin/wiretun-cli \
     --mode stub \
-    --name ${PEER3_NAME} \
+    --name ${PEER2_NAME} \
     --private-key ${PEER2_KEY} \
     --listen-port ${PEER2_LISTEN_PORT} &> ${PEER2_LOG} &
   PID=$!
   PIDS+=(${PID})
   echo "Peer2 PID: ${PID}"
+
+  sleep 5
+  wg set ${PEER2_NAME} \
+    peer ${PEER1_PUB} \
+    endpoint 0.0.0.0:${PEER1_LISTEN_PORT} \
+    allowed-ips 10.11.100.1/32
 }
 
 start_peer3() {
@@ -90,6 +98,15 @@ start_peer3() {
   PID=$!
   PIDS+=(${PID})
   echo "Peer3 PID: ${PID}"
+
+  sleep 5
+  PEER3_PSK_FILE=$(mktemp)
+  echo ${PEER3_PSK} > ${PEER3_PSK_FILE}
+  wg set ${PEER3_NAME} \
+    peer ${PEER1_PUB} \
+    endpoint 0.0.0.0:${PEER1_LISTEN_PORT} \
+    preshared-key ${PEER3_PSK_FILE} \
+    allowed-ips 10.11.100.1/32
 }
 
 start_peers() {
@@ -100,7 +117,6 @@ start_peers() {
 
 run() {
   start_peers
-  sleep 100000
 
   ./bin/tester
   RET=$?

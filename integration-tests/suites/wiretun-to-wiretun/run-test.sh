@@ -1,19 +1,9 @@
 #!/usr/bin/env bash
 
+set -x
 set -e
 
-TUN_NAME="utun44"
-
-export PEER1_KEY=oLCiGZ7J6eMjpWgBIClVGPccrnopmqIOcia8HnDN/lY=
-export PEER1_PUB=jNMMQlzMwX0WeeWed9v6lINsBS3PhmF+/4fKbdfNZTA=
-export PEER2_KEY=UGyzBpReHMheRGbwr5vFJ1Yu8Xkkbn5ub3F8w22y3HA=
-export PEER2_PUB=KlVx32ZygXCBRK2X7ko9qF5FCVfNACzKoAglNnbt1m4=
-
-PEER1_LOG=peer1.log
-PEER2_LOG=peer2.log
-
 PIDS=()
-
 cleanup() {
   echo "Cleaning up"
   for pid in ${PIDS[@]}; do
@@ -23,56 +13,80 @@ cleanup() {
 }
 trap cleanup EXIT
 
-start_peers() {
-  ./bin/peer1 &> ${PEER1_LOG} &
-  PEER1_PID=$!
-  PIDS+=(${PEER1_PID})
-  echo "Peer1 PID: ${PEER1_PID}"
+PEER1_LISTEN_PORT=50081
+PEER1_NAME=utun44
+PEER1_KEY=oLCiGZ7J6eMjpWgBIClVGPccrnopmqIOcia8HnDN/lY=
+PEER1_PUB=jNMMQlzMwX0WeeWed9v6lINsBS3PhmF+/4fKbdfNZTA=
+PEER1_ADDR=10.11.101.1/32
 
-  ./bin/peer2 &> ${PEER2_LOG} &
-  PEER2_PID=$!
-  PIDS+=(${PEER2_PID})
-  echo "Peer2 PID: ${PEER2_PID}"
-}
+PEER2_LISTEN_PORT=50082
+PEER2_NAME=peer2-stub
+PEER2_KEY=UGyzBpReHMheRGbwr5vFJ1Yu8Xkkbn5ub3F8w22y3HA=
+PEER2_PUB=KlVx32ZygXCBRK2X7ko9qF5FCVfNACzKoAglNnbt1m4=
+PEER2_ADDR=10.11.101.2/32
 
-run_for_macos() {
-  start_peers
-  # wait for peer1 and peer2 to start
-  sleep 10
-  # setup route and interface
-  ifconfig ${TUN_NAME} inet 10.0.0.1/32 10.0.0.1 alias
-  route -q -n add -inet 10.0.0.2/32 -interface ${TUN_NAME}
+rm -rf log
+mkdir log
+PEER1_LOG=log/peer1.log
+PEER2_LOG=log/peer2.log
 
-  ./bin/tester
-  RET=$?
+start_peer1() {
+  ./bin/wiretun-cli \
+    --mode native \
+    --name ${PEER1_NAME} \
+    --private-key ${PEER1_KEY} \
+    --listen-port ${PEER1_LISTEN_PORT} &> ${PEER1_LOG} &
+  PID=$!
+  PIDS+=(${PID})
+  echo "Peer1 PID: ${PID}"
 
-  exit ${RET}
-}
+  sleep 5
+  wg set ${PEER1_NAME} \
+    peer ${PEER2_PUB} \
+    endpoint 0.0.0.0:${PEER2_LISTEN_PORT} \
+    allowed-ips ${PEER2_ADDR}
 
-run_for_linux() {
-  start_peers
-  # wait for peer1 and peer2 to start
-  sleep 10
-  # setup route and interface
-  ip -4 address add 10.0.0.1/32 dev ${TUN_NAME}
-  ip link set mtu 1420 up dev ${TUN_NAME}
-  ip -4 route add 10.0.0.2/32 dev ${TUN_NAME}
-
-  ./bin/tester
-  RET=$?
-
-  exit ${RET}
-}
-
-run() {
   if [[ "$OSTYPE" == "darwin"* ]]; then
-    run_for_macos
+    ifconfig ${PEER1_NAME} inet ${PEER1_ADDR} 10.11.101.1 alias
+    route -q -n add -inet ${PEER2_ADDR} -interface ${PEER1_NAME}
   elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    run_for_linux
+    ip -4 address add ${PEER1_ADDR} dev ${PEER1_NAME}
+    ip link set mtu 1420 up dev ${PEER1_NAME}
+    ip -4 route add ${PEER2_ADDR} dev ${PEER1_NAME}
   else
     echo "Unsupported OS: ${OSTYPE}"
     exit 1
   fi
+}
+
+start_peer2() {
+  RUST_BACKTRACE=1 ./bin/wiretun-cli \
+    --mode stub \
+    --name ${PEER2_NAME} \
+    --private-key ${PEER2_KEY} \
+    --listen-port ${PEER2_LISTEN_PORT} &> ${PEER2_LOG} &
+  PID=$!
+  PIDS+=(${PID})
+  echo "Peer2 PID: ${PID}"
+
+  sleep 5
+  wg set ${PEER2_NAME} \
+    peer ${PEER1_PUB} \
+    endpoint 0.0.0.0:${PEER1_LISTEN_PORT} \
+    allowed-ips ${PEER1_ADDR}
+}
+
+start_peers() {
+  start_peer1
+  start_peer2
+}
+
+run() {
+  start_peers
+  sleep 10
+  ./bin/tester
+  RET=$?
+  exit ${RET}
 }
 
 run

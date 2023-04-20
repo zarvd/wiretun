@@ -126,7 +126,7 @@ impl Tun for StubTun {
     async fn send(&self, buf: &[u8]) -> Result<(), TunError> {
         info!("recv data[{}] from outbound", buf.len());
         self.tx
-            .send(echo_udp_packet(buf.to_vec()))
+            .send(echo_udp_packet(buf.to_vec(), self.name.as_bytes()))
             .await
             .map_err(|_| TunError::Closed)
     }

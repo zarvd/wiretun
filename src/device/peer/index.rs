@@ -158,7 +158,7 @@ where
                 public_key: entry.peer.secret().public_key().to_bytes(),
                 allowed_ips: entry.allowed_ips.clone(),
                 endpoint: entry.peer.endpoint().map(|endpoint| endpoint.dst()),
-                preshared_key: None,
+                preshared_key: Some(*entry.peer.secret().psk()),
                 persistent_keepalive: None,
             })
             .collect()

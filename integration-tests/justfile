@@ -9,18 +9,21 @@ build:
     cargo build
     popd
 
+    rm -rf bin
     mkdir bin
     cp support/wiretun-cli/target/debug/wiretun-cli bin/wiretun-cli
 
+    rm -rf suites/wireguard-to-wiretun/bin
     mkdir suites/wireguard-to-wiretun/bin
-    ln -s bin/wiretun-cli suites/wireguard-to-wiretun/bin/wiretun-cli
+    ln -s {{ absolute_path("./bin/wiretun-cli") }} suites/wireguard-to-wiretun/bin/wiretun-cli
 
+    rm -rf suites/wiretun-to-wiretun/bin
     mkdir suites/wiretun-to-wiretun/bin
-    ln -s bin/wiretun-cli suites/wiretun-to-wiretun/bin/wiretun-cli
+    ln -s {{ absolute_path("./bin/wiretun-cli") }} suites/wiretun-to-wiretun/bin/wiretun-cli
 
-run-tests: build test-native-tun
+run-tests: test-native-tun test-wireguard-to-wiretun test-wiretun-to-wiretun
 
-test-native-tun:
+test-native-tun: build
     #!/usr/bin/env bash
     set -e
     pushd suites/native-tun
@@ -28,7 +31,7 @@ test-native-tun:
     sudo target/debug/wiretun-native-tun
     popd
 
-test-wireguard-to-wiretun:
+test-wireguard-to-wiretun: build
     #!/usr/bin/env bash
     set -e
     pushd suites/wireguard-to-wiretun
@@ -45,7 +48,7 @@ test-wireguard-to-wiretun:
 
     popd
 
-test-wiretun-to-wiretun:
+test-wiretun-to-wiretun: build
     #!/usr/bin/env bash
     set -e
     pushd suites/wiretun-to-wiretun
