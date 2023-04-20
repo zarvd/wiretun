@@ -194,6 +194,7 @@ where
 
 mod inbound {
     use super::*;
+    use tracing::error;
 
     pub(super) async fn handle_handshake_initiation<T>(
         peer: Arc<Peer<T>>,
@@ -299,7 +300,9 @@ mod inbound {
                 }
 
                 debug!("recv data from peer and try to send it to TUN");
-                peer.tun.send(&data).await.unwrap();
+                if let Err(e) = peer.tun.send(&data).await {
+                    error!("{peer} failed to send data to tun: {e}");
+                }
                 session.aceept(packet.counter);
             }
             Err(e) => debug!("failed to decrypt packet: {e}"),

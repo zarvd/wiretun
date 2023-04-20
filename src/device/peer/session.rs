@@ -1,7 +1,8 @@
+use rand_core::{OsRng, RngCore};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
@@ -309,6 +310,7 @@ impl ActiveSession {
 
 #[derive(Clone)]
 pub(crate) struct SessionIndex {
+    index: Arc<AtomicU32>,
     indexes: Arc<RwLock<HashMap<u32, Session>>>,
     keys: Arc<RwLock<HashMap<[u8; 32], HashSet<u32>>>>,
 }
@@ -316,9 +318,15 @@ pub(crate) struct SessionIndex {
 impl SessionIndex {
     pub fn new() -> Self {
         Self {
+            index: Arc::new(AtomicU32::new(OsRng.next_u32())),
             indexes: Arc::new(RwLock::new(HashMap::new())),
             keys: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    #[inline]
+    pub fn next_index(&self) -> u32 {
+        self.index.fetch_add(1, Ordering::Relaxed)
     }
 
     pub fn insert(&self, session: Session) {
