@@ -5,7 +5,6 @@ mod protocol;
 use connection::Connection;
 pub use error::Error;
 use protocol::{GetDevice, GetPeer, Request, Response, SetDevice, SetPeer};
-use std::collections::HashSet;
 
 use std::path::{Path, PathBuf};
 
@@ -133,27 +132,31 @@ where
             device.remove_peer(&peer.public_key);
             break;
         }
-        match cfg.peers.get(&peer.public_key) {
-            Some(cfg) => {
+        match cfg.peers.get(&peer.public_key).cloned() {
+            Some(mut cfg) => {
                 // to update
                 if let Some(endpoint) = peer.endpoint {
-                    device.update_peer_endpoint(&peer.public_key, endpoint);
+                    cfg.endpoint = Some(endpoint);
                 }
-                let mut allowed_ips = cfg.allowed_ips.clone().into_iter().collect::<HashSet<_>>();
                 if peer.replace_allowed_ips {
-                    allowed_ips.clear();
+                    cfg.allowed_ips.clear();
                 }
                 for ip in peer.allowed_ips {
-                    allowed_ips.insert(ip);
+                    cfg.allowed_ips.insert(ip);
                 }
-                device.update_peer_allowed_ips(&peer.public_key, allowed_ips.into_iter().collect());
+                if let Some(psk) = peer.psk {
+                    cfg.preshared_key = Some(psk);
+                }
+
+                device.remove_peer(&peer.public_key);
+                device.insert_peer(cfg);
             }
             None if !peer.update_only => {
                 device.insert_peer(PeerConfig {
                     public_key: peer.public_key,
                     allowed_ips: peer.allowed_ips,
                     endpoint: peer.endpoint,
-                    preshared_key: None,
+                    preshared_key: peer.psk,
                     persistent_keepalive: None,
                 });
             }

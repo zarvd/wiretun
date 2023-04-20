@@ -108,7 +108,10 @@ where
         let mut index = self.peers.lock().unwrap();
         index.clear();
         for p in peers {
-            let secret = settings.secret.clone().with_peer(p.public_key);
+            let mut secret = settings.secret.clone().with_peer(p.public_key);
+            if let Some(psk) = p.preshared_key {
+                secret.set_psk(psk);
+            }
             let endpoint = p.endpoint.map(|addr| settings.inbound.endpoint_for(addr));
             index.insert(secret, p.allowed_ips, endpoint);
         }
@@ -118,7 +121,10 @@ where
     pub fn insert_peer(&self, cfg: PeerConfig) {
         let settings = self.settings.lock().unwrap();
         let mut index = self.peers.lock().unwrap();
-        let secret = settings.secret.clone().with_peer(cfg.public_key);
+        let mut secret = settings.secret.clone().with_peer(cfg.public_key);
+        if let Some(psk) = cfg.preshared_key {
+            secret.set_psk(psk);
+        }
         let endpoint = cfg.endpoint.map(|addr| settings.inbound.endpoint_for(addr));
         index.insert(secret, cfg.allowed_ips, endpoint);
     }

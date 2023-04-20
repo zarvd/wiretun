@@ -26,26 +26,23 @@ integration-test: integration-test-native-tun integration-test-wiretun-to-wiretu
 integration-test-native-tun:
     #!/usr/bin/env bash
     set -e
-    pushd integration-tests/native-tun
-    ./pre-test.sh
-    sudo ./run-test.sh
+    pushd integration-tests
+    just test-native-tun
     popd
 
 # Run integration test scenario: WireTun to WireTun
 integration-test-wiretun-to-wiretun:
     #!/usr/bin/env bash
     set -e
-    pushd integration-tests/wiretun-to-wiretun
-    ./pre-test.sh
-    sudo ./run-test.sh
+    pushd integration-tests
+    just test-wiretun-to-wiretun
     popd
 
 # Run integration test scenario: WireGuard to WireTun
 integration-test-wireguard-to-wiretun:
     #!/usr/bin/env bash
     set -e
-    pushd integration-tests/wireguard-to-wiretun
-    ./pre-test.sh
-    sudo ./run-test.sh
+    pushd integration-tests
+    just test-wireguard-to-wiretun
     popd
 
