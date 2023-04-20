@@ -26,7 +26,7 @@ use crate::noise::handshake::Cookie;
 
 use crate::Tun;
 use handle::DeviceHandle;
-use inbound::{Endpoint, Inbound};
+use inbound::{Endpoint, UdpListener};
 use peer::{Peer, PeerIndex, Session};
 use rate_limiter::RateLimiter;
 
@@ -34,11 +34,11 @@ struct Settings {
     secret: LocalStaticSecret,
     fwmark: u32,
     cookie: Arc<Cookie>,
-    inbound: Inbound,
+    inbound: UdpListener,
 }
 
 impl Settings {
-    pub fn new(inbound: Inbound, private_key: [u8; 32], fwmark: u32) -> Self {
+    pub fn new(inbound: UdpListener, private_key: [u8; 32], fwmark: u32) -> Self {
         let secret = LocalStaticSecret::new(private_key);
         let cookie = Arc::new(Cookie::new(&secret));
 
@@ -146,6 +146,18 @@ where
     }
 
     #[inline]
+    fn update_inbound(&self, inbound: UdpListener) {
+        let mut settings = self.settings.lock().unwrap();
+        let peers = self.peers.lock().unwrap();
+        settings.inbound = inbound;
+        for p in peers.all() {
+            if let Some(endpoint) = p.endpoint() {
+                p.update_endpoint(settings.inbound.endpoint_for(endpoint.dst()));
+            }
+        }
+    }
+
+    #[inline]
     pub fn update_peer_allowed_ips(&self, public_key: &[u8; 32], ips: HashSet<Cidr>) {
         let mut peers = self.peers.lock().unwrap();
         peers.update_allowed_ips_by_key(public_key, ips);
@@ -193,7 +205,7 @@ where
     pub async fn with_tun(tun: T, cfg: DeviceConfig) -> Result<Self, Error> {
         let token = CancellationToken::new();
         let inner = {
-            let inbound = Inbound::bind(cfg.listen_port).await?;
+            let inbound = UdpListener::bind(cfg.listen_port).await?;
             let settings = Mutex::new(Settings::new(inbound, cfg.private_key, cfg.fwmark));
             let peers = Mutex::new(PeerIndex::new(token.child_token(), tun.clone()));
             let rate_limiter = RateLimiter::new(1_000);
@@ -228,7 +240,6 @@ where
 
     pub async fn terminate(self) {
         self.token.cancel();
-
         let mut handle = self.handle.lock().await;
         handle.stop().await;
     }
@@ -319,11 +330,9 @@ where
                 return Ok(());
             }
         }
-        {
-            let inbound = Inbound::bind(port).await?;
-            let mut settings = self.inner.settings.lock().unwrap();
-            settings.inbound = inbound;
-        }
+        let inbound = UdpListener::bind(port).await?;
+        self.inner.update_inbound(inbound);
+
         let mut handle = self.handle.lock().await;
         handle.restart_inbound(Arc::clone(&self.inner)).await;
         Ok(())

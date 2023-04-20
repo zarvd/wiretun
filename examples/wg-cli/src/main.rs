@@ -56,7 +56,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_secs(10)).await;
         info!("Updating listen port");
-        let _ = ctrl.update_device(9991).await;
+        let _ = ctrl.update_listen_port(9991).await;
     });
 
     tokio::signal::ctrl_c().await?;

@@ -36,7 +36,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .init();
 
     let cfg = DeviceConfig::default()
-        .listen_port(40002)
+        .listen_port(51871)
         .private_key(local_private_key())
         .peer(
             PeerConfig::default()
@@ -46,7 +46,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let tun = StubTun::new();
     let device = Device::with_tun(tun, cfg).await?;
 
-    uapi::bind_and_handle(device.control()).await?;
+    let ctrl = device.control();
+    tokio::spawn(uapi::bind_and_handle(ctrl));
+
+    tokio::signal::ctrl_c().await?;
+    device.terminate().await; // stop gracefully
 
     Ok(())
 }
