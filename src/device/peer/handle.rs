@@ -1,5 +1,7 @@
 use std::sync::Arc;
+use std::time::Duration;
 
+use futures::future::join_all;
 use tokio::task::JoinHandle;
 use tokio::time;
 use tokio_util::sync::CancellationToken;
@@ -16,12 +18,7 @@ use crate::Tun;
 
 pub(crate) struct PeerHandle {
     token: CancellationToken,
-    #[allow(unused)]
-    handshake_loop: (CancellationToken, JoinHandle<()>),
-    #[allow(unused)]
-    inbound_loop: (CancellationToken, JoinHandle<()>),
-    #[allow(unused)]
-    outbound_loop: (CancellationToken, JoinHandle<()>),
+    handles: Vec<JoinHandle<()>>,
 }
 
 impl PeerHandle {
@@ -34,33 +31,39 @@ impl PeerHandle {
     where
         T: Tun + 'static,
     {
-        let handshake_loop = {
-            let token = token.child_token();
-            (
-                token.clone(),
-                tokio::spawn(loop_handshake(token, Arc::clone(&peer))),
-            )
-        };
-        let inbound_loop = {
-            let token = token.child_token();
-            (
-                token.clone(),
-                tokio::spawn(loop_inbound(token, Arc::clone(&peer), inbound)),
-            )
-        };
-        let outbound_loop = {
-            let token = token.child_token();
-            (
-                token.clone(),
-                tokio::spawn(loop_outbound(token, Arc::clone(&peer), outbound)),
-            )
-        };
+        let handshake_loop = tokio::spawn(loop_handshake(token.child_token(), Arc::clone(&peer)));
+        let inbound_loop = tokio::spawn(loop_inbound(
+            token.child_token(),
+            Arc::clone(&peer),
+            inbound,
+        ));
+        let outbound_loop = tokio::spawn(loop_outbound(
+            token.child_token(),
+            Arc::clone(&peer),
+            outbound,
+        ));
 
         Self {
             token,
-            handshake_loop,
-            inbound_loop,
-            outbound_loop,
+            handles: vec![handshake_loop, inbound_loop, outbound_loop],
+        }
+    }
+
+    /// Cancel the background tasks and wait until they are terminated.
+    /// If the timeout is reached, the tasks are terminated immediately.
+    pub async fn cancel(mut self, timeout: Duration) {
+        self.token.cancel();
+        let handles = self.handles.drain(..).collect::<Vec<_>>();
+        let abort_handles = handles.iter().map(|h| h.abort_handle()).collect::<Vec<_>>();
+        if let Err(e) = tokio::time::timeout(timeout, join_all(handles)).await {
+            warn!(
+                "failed to cancel peer tasks in {}ms: {}",
+                timeout.as_millis(),
+                e
+            );
+            for handle in abort_handles {
+                handle.abort();
+            }
         }
     }
 }
@@ -75,7 +78,7 @@ async fn loop_handshake<T>(token: CancellationToken, peer: Arc<Peer<T>>)
 where
     T: Tun + 'static,
 {
-    debug!("starting handshake loop for peer {peer}");
+    debug!("Handshake loop for {peer} is UP");
     while !token.is_cancelled() {
         if peer.monitor.can_handshake() {
             info!("initiating handshake");
@@ -91,7 +94,7 @@ where
         }
         time::sleep_until(peer.monitor.handshake().will_initiate_in().into()).await;
     }
-    debug!("exiting handshake loop for peer {peer}")
+    debug!("Handshake loop for {peer} is DOWN");
 }
 
 // Send to endpoint if connected, otherwise queue for later
@@ -99,7 +102,7 @@ async fn loop_outbound<T>(token: CancellationToken, peer: Arc<Peer<T>>, mut rx: 
 where
     T: Tun + 'static,
 {
-    debug!("starting outbound loop for peer {peer}");
+    debug!("Outbound loop for {peer} is UP");
 
     loop {
         tokio::select! {
@@ -118,7 +121,7 @@ where
         }
     }
 
-    debug!("exiting outbound loop for peer {peer}");
+    debug!("Outbound loop for {peer} is DOWN");
 }
 
 async fn tick_outbound<T>(peer: Arc<Peer<T>>, data: Vec<u8>)
@@ -145,7 +148,7 @@ async fn loop_inbound<T>(token: CancellationToken, peer: Arc<Peer<T>>, mut rx: I
 where
     T: Tun + 'static,
 {
-    debug!("starting inbound loop for peer {peer}");
+    debug!("Inbound loop for {peer} is UP");
 
     loop {
         tokio::select! {
@@ -159,7 +162,7 @@ where
         }
     }
 
-    debug!("exiting inbound loop for peer {peer}");
+    debug!("Inbound loop for {peer} is DOWN");
 }
 
 async fn tick_inbound<T>(peer: Arc<Peer<T>>, event: InboundEvent)

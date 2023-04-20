@@ -5,8 +5,6 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
-use tracing::debug;
-
 use crate::device::Error;
 use crate::noise;
 use crate::noise::crypto::PeerStaticSecret;
@@ -79,7 +77,6 @@ impl Session {
             return Err(Error::Noise(noise::Error::ReceiverIndexNotMatch));
         }
 
-        debug!("try to decrypt data: {:?}", packet);
         crypto::aead_decrypt(&self.receiver_key, packet.counter, &packet.payload, &[])
             .map_err(Error::Noise)
     }
@@ -202,7 +199,7 @@ impl fmt::Debug for NonceFilter {
     }
 }
 
-pub(super) struct Sessions {
+pub(super) struct ActiveSession {
     index: SessionIndex,
     uninit: Option<Session>,
     previous: Option<Session>,
@@ -210,7 +207,7 @@ pub(super) struct Sessions {
     next: Option<Session>,
 }
 
-impl Sessions {
+impl ActiveSession {
     pub fn new(index: SessionIndex) -> Self {
         Self {
             index,
@@ -301,19 +298,11 @@ impl Sessions {
 
     #[inline]
     fn activate(&self, session: &Session) {
-        debug!(
-            "activate session: {} / {}",
-            session.sender_index, session.receiver_index
-        );
         self.index.insert(session.clone());
     }
 
     #[inline]
     fn deactivate(&self, session: &Session) {
-        debug!(
-            "deactivate session: {} / {}",
-            session.sender_index, session.receiver_index
-        );
         self.index.remove(session);
     }
 }

@@ -16,7 +16,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::sync::RwLock;
 
 use tokio::sync::mpsc;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::device::inbound::Endpoint;
 use crate::noise::crypto;
@@ -26,7 +26,7 @@ use crate::noise::protocol;
 use crate::Tun;
 use handshake::Handshake;
 use monitor::PeerMonitor;
-use session::{SessionIndex, Sessions};
+use session::{ActiveSession, SessionIndex};
 
 #[derive(Debug)]
 pub(crate) enum OutboundEvent {
@@ -67,7 +67,7 @@ where
 {
     tun: T,
     secret: PeerStaticSecret,
-    sessions: RwLock<Sessions>,
+    sessions: RwLock<ActiveSession>,
     handshake: RwLock<Handshake>,
     endpoint: RwLock<Option<Endpoint>>,
     inbound: InboundTx,
@@ -88,7 +88,7 @@ where
         outbound: OutboundTx,
     ) -> Self {
         let handshake = RwLock::new(Handshake::new(secret.clone()));
-        let sessions = RwLock::new(Sessions::new(session_index));
+        let sessions = RwLock::new(ActiveSession::new(session_index));
         let monitor = PeerMonitor::new();
         let endpoint = RwLock::new(endpoint);
         Self {
@@ -106,13 +106,17 @@ where
     /// Stage inbound data from tun.
     #[inline]
     pub async fn handle_inbound(&self, e: InboundEvent) {
-        self.inbound.send(e).await.unwrap();
+        if let Err(e) = self.inbound.send(e).await {
+            warn!("{} not able to handle inbound: {}", self, e);
+        }
     }
 
     /// Stage outbound data to be sent to the peer
     #[inline]
     pub async fn stage_outbound(&self, buf: Vec<u8>) {
-        self.outbound.send(OutboundEvent::Data(buf)).await.unwrap();
+        if let Err(e) = self.outbound.send(OutboundEvent::Data(buf)).await {
+            warn!("{} not able to stage outbound: {}", self, e);
+        }
     }
 
     /// Send keepalive packet to the peer if the traffic is idle.
@@ -121,10 +125,7 @@ where
         if !self.monitor.can_keepalive() {
             return;
         }
-        self.outbound
-            .send(OutboundEvent::Data(vec![]))
-            .await
-            .unwrap();
+        self.stage_outbound(vec![]).await;
     }
 
     /// Update the endpoint of the peer.

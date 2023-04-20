@@ -1,5 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::future::join_all;
 use futures::StreamExt;
@@ -8,7 +9,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, warn};
 
-use super::inbound::{Endpoint, Listener};
+use super::inbound::{Endpoint, UdpInbound};
 use super::peer::InboundEvent;
 use super::DeviceInner;
 use crate::noise::crypto::LocalStaticSecret;
@@ -42,8 +43,18 @@ impl DeviceHandle {
     where
         T: Tun + 'static,
     {
-        let handles: Vec<_> = self.inbound_handles.1.drain(..).collect();
-        join_all(handles).await;
+        // Stop the previous tasks
+        {
+            let handles: Vec<_> = self.inbound_handles.1.drain(..).collect();
+            let abort_handles: Vec<_> = handles.iter().map(|h| h.abort_handle()).collect();
+            self.inbound_handles.0.cancel();
+            if let Err(e) = tokio::time::timeout(Duration::from_secs(5), join_all(handles)).await {
+                warn!("stopping device inbound loop timeout: {e}");
+                for handle in abort_handles {
+                    handle.abort();
+                }
+            }
+        }
 
         let token = self.token.child_token();
         let handles = vec![
@@ -96,9 +107,8 @@ async fn loop_inbound_v4<T>(inner: Arc<DeviceInner<T>>, token: CancellationToken
 where
     T: Tun + 'static,
 {
-    let listener = inner.settings.lock().unwrap().inbound.v4();
-
-    loop_inbound(inner, listener, token).await;
+    let inbound = inner.settings.lock().unwrap().inbound.v4();
+    loop_inbound(inner, inbound, token).await;
 }
 
 #[inline(always)]
@@ -106,18 +116,18 @@ async fn loop_inbound_v6<T>(inner: Arc<DeviceInner<T>>, token: CancellationToken
 where
     T: Tun + 'static,
 {
-    let listener = inner.settings.lock().unwrap().inbound.v6();
-    loop_inbound(inner, listener, token).await;
+    let inbound = inner.settings.lock().unwrap().inbound.v6();
+    loop_inbound(inner, inbound, token).await;
 }
 
 async fn loop_inbound<T>(
     inner: Arc<DeviceInner<T>>,
-    mut listener: Listener,
+    mut inbound: UdpInbound,
     token: CancellationToken,
 ) where
     T: Tun + 'static,
 {
-    debug!("starting inbound loop for {}", listener);
+    debug!("Device Inbound loop for {inbound} is UP");
     let (secret, cookie) = {
         let settings = inner.settings.lock().unwrap();
         (settings.secret.clone(), Arc::clone(&settings.cookie))
@@ -126,10 +136,10 @@ async fn loop_inbound<T>(
     loop {
         tokio::select! {
             _ = token.cancelled() => {
-                debug!("stopping outbound loop for {}", listener);
+                debug!("Device Inbound loop for {inbound} is DOWN");
                 return;
             }
-            data = listener.next() => {
+            data = inbound.next() => {
                 if let Some((endpoint, payload)) = data {
                     tick_inbound(Arc::clone(&inner), &secret, Arc::clone(&cookie), endpoint, payload).await;
                 }
@@ -231,11 +241,11 @@ async fn loop_outbound<T>(inner: Arc<DeviceInner<T>>, token: CancellationToken)
 where
     T: Tun + 'static,
 {
-    debug!("starting outbound loop");
+    debug!("Device outbound loop is UP");
     loop {
         tokio::select! {
             _ = token.cancelled() => {
-                debug!("stopping inbound loop");
+                debug!("Device outbound loop is DOWN");
                 return;
             }
             _ = tick_outbound(Arc::clone(&inner)) => {}

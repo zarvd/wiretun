@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -74,6 +75,14 @@ where
         }
     }
 
+    #[inline]
+    pub fn all(&self) -> Vec<Arc<Peer<T>>> {
+        self.peers
+            .values()
+            .map(|entry| Arc::clone(&entry.peer))
+            .collect()
+    }
+
     pub fn insert(
         &mut self,
         secret: PeerStaticSecret,
@@ -138,6 +147,7 @@ where
 
     pub fn remove_by_key(&mut self, public_key: &[u8; 32]) {
         if let Some(entry) = self.peers.remove(public_key) {
+            tokio::spawn(entry.handle.cancel(Duration::from_secs(5)));
             for cidr in entry.allowed_ips {
                 self.ips.remove(&cidr);
             }
@@ -146,7 +156,9 @@ where
     }
 
     pub fn clear(&mut self) {
-        self.peers.clear();
+        self.peers.drain().for_each(|(_, entry)| {
+            tokio::spawn(entry.handle.cancel(Duration::from_secs(5)));
+        });
         self.ips.clear();
         self.sessions.clear();
     }
