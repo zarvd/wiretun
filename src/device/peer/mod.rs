@@ -87,7 +87,7 @@ where
         inbound: InboundTx,
         outbound: OutboundTx,
     ) -> Self {
-        let handshake = RwLock::new(Handshake::new(secret.clone()));
+        let handshake = RwLock::new(Handshake::new(secret.clone(), session_index.clone()));
         let sessions = RwLock::new(ActiveSession::new(session_index));
         let monitor = PeerMonitor::new();
         let endpoint = RwLock::new(endpoint);

@@ -1,6 +1,4 @@
-use rand_core::{OsRng, RngCore};
-
-use super::session::Session;
+use super::session::{Session, SessionIndex};
 use crate::noise::protocol::HandshakeResponse;
 use crate::noise::{
     crypto::{kdf2, PeerStaticSecret},
@@ -18,30 +16,24 @@ enum State {
 pub(super) struct Handshake {
     state: State,
     secret: PeerStaticSecret,
-    local_index: u32,
     macs: MacGenerator,
+    session_index: SessionIndex,
 }
 
 impl Handshake {
-    pub fn new(secret: PeerStaticSecret) -> Self {
+    pub fn new(secret: PeerStaticSecret, session_index: SessionIndex) -> Self {
         let cookie = MacGenerator::new(&secret);
         Self {
             secret,
+            session_index,
             macs: cookie,
             state: State::Uninit,
-            local_index: OsRng.next_u32(),
         }
-    }
-
-    fn tick_local_index(&mut self) -> u32 {
-        // FIXME: use global index to avoid collision
-        self.local_index = self.local_index.wrapping_add(1);
-        self.local_index
     }
 
     // Prepare HandshakeInitiation packet.
     pub fn initiate(&mut self) -> (Session, Vec<u8>) {
-        let sender_index = self.tick_local_index();
+        let sender_index = self.session_index.next_index();
         let (state, payload) = OutgoingInitiation::new(sender_index, &self.secret, &mut self.macs);
         let pre = Session::new(self.secret.clone(), sender_index, [0u8; 32], 0, [0u8; 32]);
         self.state = State::Initiation(state);
@@ -54,10 +46,10 @@ impl Handshake {
         &mut self,
         initiation: &IncomingInitiation,
     ) -> Result<(Session, Vec<u8>), Error> {
-        self.tick_local_index();
+        let local_index = self.session_index.next_index();
         let (state, payload) =
-            OutgoingResponse::new(initiation, self.local_index, &self.secret, &mut self.macs);
-        let (sender_index, receiver_index) = (self.local_index, initiation.index);
+            OutgoingResponse::new(initiation, local_index, &self.secret, &mut self.macs);
+        let (sender_index, receiver_index) = (local_index, initiation.index);
         let (receiver_key, sender_key) = kdf2(&state.chaining_key, &[]);
         let sess = Session::new(
             self.secret.clone(),
