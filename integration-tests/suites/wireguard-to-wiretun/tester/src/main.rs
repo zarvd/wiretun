@@ -13,16 +13,31 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let local_ip = IpAddr::V4(Ipv4Addr::new(10, 11, 100, 1));
-    let remote_ip = IpAddr::V4(Ipv4Addr::new(10, 11, 100, 2));
+    {
+        let local_ip = IpAddr::V4(Ipv4Addr::new(10, 11, 100, 1));
+        let remote_ip = IpAddr::V4(Ipv4Addr::new(10, 11, 100, 2));
 
-    info!("==================");
-    info!("Running test: simple_udp_echo");
-    test_case::simple_udp_echo(local_ip, remote_ip).await?;
+        info!("==================");
+        info!("Running test: simple_udp_echo");
+        test_case::simple_udp_echo(local_ip, remote_ip, "peer2").await?;
 
-    info!("==================");
-    info!("Running test: after_rekey_udp_echo");
-    test_case::after_rekey_udp_echo(local_ip, remote_ip).await?;
+        info!("==================");
+        info!("Running test: after_rekey_udp_echo");
+        test_case::after_rekey_udp_echo(local_ip, remote_ip, "peer2").await?;
+    }
+
+    {
+        let local_ip = IpAddr::V4(Ipv4Addr::new(10, 11, 100, 1));
+        let remote_ip = IpAddr::V4(Ipv4Addr::new(10, 11, 100, 3));
+
+        info!("==================");
+        info!("Running test: simple_udp_echo");
+        test_case::simple_udp_echo(local_ip, remote_ip, "peer3").await?;
+
+        info!("==================");
+        info!("Running test: after_rekey_udp_echo");
+        test_case::after_rekey_udp_echo(local_ip, remote_ip, "peer3").await?;
+    }
 
     Ok(())
 }
@@ -41,6 +56,7 @@ mod test_case {
     pub async fn simple_udp_echo(
         local_ip: IpAddr,
         remote_ip: IpAddr,
+        peer: &str,
     ) -> Result<(), Box<dyn Error>> {
         let local_addr = SocketAddr::new(local_ip, 45999);
         let remote_addr = SocketAddr::new(remote_ip, 46999);
@@ -59,7 +75,9 @@ mod test_case {
                 .expect("should recv packet in 2 secs")?;
 
             assert_eq!(addr, remote_addr);
-            assert_eq!(&input[..len], &output[..]);
+            let mut expected = format!("from-{}->", peer).into_bytes();
+            expected.extend_from_slice(&output);
+            assert_eq!(&input[..len], &expected);
             info!("[{i}/500] Test passed");
         }
 
@@ -70,6 +88,7 @@ mod test_case {
     pub async fn after_rekey_udp_echo(
         local_ip: IpAddr,
         remote_ip: IpAddr,
+        peer: &str,
     ) -> Result<(), Box<dyn Error>> {
         let local_addr = SocketAddr::new(local_ip, 45999);
         let remote_addr = SocketAddr::new(remote_ip, 46999);
@@ -90,7 +109,9 @@ mod test_case {
                 .expect("should recv packet in 2 secs")?;
 
             assert_eq!(addr, remote_addr);
-            assert_eq!(&input[..len], &output[..]);
+            let mut expected = format!("from-{}->", peer).into_bytes();
+            expected.extend_from_slice(&output);
+            assert_eq!(&input[..len], &expected);
             info!("[{i}/500] Test passed");
         }
         Ok(())

@@ -24,12 +24,12 @@ cleanup() {
 trap cleanup EXIT
 
 start_peers() {
-  ./wiretun-peer1 &> ${PEER1_LOG} &
+  ./bin/peer1 &> ${PEER1_LOG} &
   PEER1_PID=$!
   PIDS+=(${PEER1_PID})
   echo "Peer1 PID: ${PEER1_PID}"
 
-  ./wiretun-peer2 &> ${PEER2_LOG} &
+  ./bin/peer2 &> ${PEER2_LOG} &
   PEER2_PID=$!
   PIDS+=(${PEER2_PID})
   echo "Peer2 PID: ${PEER2_PID}"
@@ -43,7 +43,7 @@ run_for_macos() {
   ifconfig ${TUN_NAME} inet 10.0.0.1/32 10.0.0.1 alias
   route -q -n add -inet 10.0.0.2/32 -interface ${TUN_NAME}
 
-  ./wiretun-tester
+  ./bin/tester
   RET=$?
 
   exit ${RET}
@@ -58,7 +58,7 @@ run_for_linux() {
   ip link set mtu 1420 up dev ${TUN_NAME}
   ip -4 route add 10.0.0.2/32 dev ${TUN_NAME}
 
-  ./wiretun-tester
+  ./bin/tester
   RET=$?
 
   exit ${RET}

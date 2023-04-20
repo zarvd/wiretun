@@ -25,7 +25,10 @@ pub fn echo_udp_packet(mut buf: Vec<u8>) -> Vec<u8> {
             udp.set_source(dst_port);
             udp.set_destination(src_port);
             udp.set_checksum(ipv4_checksum(&udp.to_immutable(), &dst_ip, &src_ip));
-            ipv4.set_payload(udp.packet());
+            let mut payload = vec![];
+            payload.extend_from_slice(b"from-peer2->");
+            payload.extend_from_slice(udp.packet());
+            ipv4.set_payload(&payload);
         }
         _ => {
             debug!("Unknown packet type!");

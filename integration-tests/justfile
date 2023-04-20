@@ -1,0 +1,63 @@
+default:
+    just --list
+
+# Build test support
+build:
+    #!/usr/bin/env bash
+    set -e
+    pushd support/wiretun-cli
+    cargo build
+    popd
+
+    mkdir bin
+    cp support/wiretun-cli/target/debug/wiretun-cli bin/wiretun-cli
+
+    mkdir suites/wireguard-to-wiretun/bin
+    ln -s bin/wiretun-cli suites/wireguard-to-wiretun/bin/wiretun-cli
+
+    mkdir suites/wiretun-to-wiretun/bin
+    ln -s bin/wiretun-cli suites/wiretun-to-wiretun/bin/wiretun-cli
+
+run-tests: build test-native-tun
+
+test-native-tun:
+    #!/usr/bin/env bash
+    set -e
+    pushd suites/native-tun
+    cargo build
+    sudo target/debug/wiretun-native-tun
+    popd
+
+test-wireguard-to-wiretun:
+    #!/usr/bin/env bash
+    set -e
+    pushd suites/wireguard-to-wiretun
+
+    # build tester
+    pushd tester
+    cargo build
+    popd
+
+    cp tester/target/debug/wireguard-to-wiretun-tester bin/tester
+
+    # Run test
+    sudo ./run-test.sh
+
+    popd
+
+test-wiretun-to-wiretun:
+    #!/usr/bin/env bash
+    set -e
+    pushd suites/wiretun-to-wiretun
+
+    # build tester
+    pushd tester
+    cargo build
+    popd
+
+    cp tester/target/debug/wiretun-to-wiretun-tester bin/tester
+
+    # Run test
+    sudo ./run-test.sh
+
+    popd
