@@ -200,6 +200,7 @@ where
 
 #[cfg(feature = "native")]
 impl Device<crate::NativeTun, UdpTransport> {
+    /// Creates a new device with the given configuration using [`crate::tun::NativeTun`].
     pub async fn native(name: &str, cfg: DeviceConfig) -> Result<Self, Error> {
         let tun = crate::NativeTun::new(name).map_err(Error::Tun)?;
         Device::with_udp(tun, cfg).await
@@ -210,6 +211,8 @@ impl<T> Device<T, UdpTransport>
 where
     T: Tun + 'static,
 {
+    /// Creates a new device with the given configuration.
+    /// It uses UDP transport and binds to `cfg.listen_port`.
     pub async fn with_udp(tun: T, cfg: DeviceConfig) -> Result<Self, Error> {
         let transport = UdpTransport::bind(cfg.listen_port).await?;
         Self::with_transport(tun, transport, cfg).await
@@ -221,6 +224,8 @@ where
     T: Tun + 'static,
     I: Transport,
 {
+    /// Creates a new device with the given configuration.
+    /// The `cfg.listen_port` is ignored if the transport is already bound.
     pub async fn with_transport(tun: T, transport: I, cfg: DeviceConfig) -> Result<Self, Error> {
         let token = CancellationToken::new();
         let inner = {
@@ -249,6 +254,7 @@ where
         })
     }
 
+    /// Returns a control handle to the device.
     #[inline]
     pub fn control(&self) -> DeviceControl<T, I> {
         DeviceControl {
@@ -257,6 +263,7 @@ where
         }
     }
 
+    /// Terminates the device and waits for it to stop.
     pub async fn terminate(self) {
         self.token.cancel();
         let mut handle = self.handle.lock().await;
@@ -340,20 +347,21 @@ where
         self.inner.metrics()
     }
 
+    /// Updates the private key of the device.
     pub fn update_private_key(&self, private_key: [u8; 32]) {
         self.inner.reset_private_key(private_key);
     }
 
+    /// Update the listen port of the device.
     pub async fn update_listen_port(&self, port: u16) -> Result<(), Error> {
-        let transport = {
+        {
             let settings = self.inner.settings.lock().unwrap();
             if settings.listen_port() == port {
                 debug!("The listen port is the same with the old one, skip updating");
                 return Ok(());
             }
-            settings.inbound.transport()
-        };
-        let inbound = Inbound::new(transport.bind_port(port).await?);
+        }
+        let inbound = Inbound::new(<I as Transport>::bind(port).await?);
         self.inner.update_inbound(inbound);
 
         let mut handle = self.handle.lock().await;
