@@ -9,36 +9,41 @@ mod time;
 
 pub use config::{DeviceConfig, PeerConfig};
 pub use error::Error;
+pub use inbound::{Endpoint, Transport, UdpTransport};
 pub use metrics::DeviceMetrics;
 pub use peer::{Cidr, ParseCidrError, PeerMetrics};
-use std::collections::HashSet;
 
+use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
 use tokio::sync::Mutex as AsyncMutex;
-
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
 use crate::noise::crypto::LocalStaticSecret;
 use crate::noise::handshake::Cookie;
-
 use crate::Tun;
 use handle::DeviceHandle;
-use inbound::{Endpoint, UdpListener};
+use inbound::Inbound;
 use peer::{Peer, PeerIndex, Session};
 use rate_limiter::RateLimiter;
 
-struct Settings {
+struct Settings<I>
+where
+    I: Transport,
+{
     secret: LocalStaticSecret,
     fwmark: u32,
     cookie: Arc<Cookie>,
-    inbound: UdpListener,
+    inbound: Inbound<I>,
 }
 
-impl Settings {
-    pub fn new(inbound: UdpListener, private_key: [u8; 32], fwmark: u32) -> Self {
+impl<I> Settings<I>
+where
+    I: Transport,
+{
+    pub fn new(inbound: Inbound<I>, private_key: [u8; 32], fwmark: u32) -> Self {
         let secret = LocalStaticSecret::new(private_key);
         let cookie = Arc::new(Cookie::new(&secret));
 
@@ -52,23 +57,25 @@ impl Settings {
 
     #[inline(always)]
     pub fn listen_port(&self) -> u16 {
-        self.inbound.local_port()
+        self.inbound.port()
     }
 }
 
-pub(super) struct DeviceInner<T>
+pub(super) struct DeviceInner<T, I>
 where
     T: Tun + 'static,
+    I: Transport,
 {
     tun: T,
-    settings: Mutex<Settings>,
-    peers: Mutex<PeerIndex<T>>,
+    settings: Mutex<Settings<I>>,
+    peers: Mutex<PeerIndex<T, I>>,
     rate_limiter: RateLimiter,
 }
 
-impl<T> DeviceInner<T>
+impl<T, I> DeviceInner<T, I>
 where
     T: Tun + 'static,
+    I: Transport,
 {
     #[inline]
     pub fn metrics(&self) -> DeviceMetrics {
@@ -91,13 +98,13 @@ where
     }
 
     #[inline]
-    pub fn get_peer_by_key(&self, public_key: &[u8; 32]) -> Option<Arc<Peer<T>>> {
+    pub fn get_peer_by_key(&self, public_key: &[u8; 32]) -> Option<Arc<Peer<T, I>>> {
         let index = self.peers.lock().unwrap();
         index.get_by_key(public_key)
     }
 
     #[inline]
-    pub fn get_session_by_index(&self, i: u32) -> Option<(Session, Arc<Peer<T>>)> {
+    pub fn get_session_by_index(&self, i: u32) -> Option<(Session, Arc<Peer<T, I>>)> {
         let index = self.peers.lock().unwrap();
         index.get_session_by_index(i)
     }
@@ -146,7 +153,7 @@ where
     }
 
     #[inline]
-    fn update_inbound(&self, inbound: UdpListener) {
+    fn update_inbound(&self, inbound: Inbound<I>) {
         let mut settings = self.settings.lock().unwrap();
         let peers = self.peers.lock().unwrap();
         settings.inbound = inbound;
@@ -181,31 +188,43 @@ where
 ///     Ok(())
 /// }
 /// ```
-pub struct Device<T>
+pub struct Device<T, I>
 where
     T: Tun + 'static,
+    I: Transport,
 {
     token: CancellationToken, // The root token
-    inner: Arc<DeviceInner<T>>,
+    inner: Arc<DeviceInner<T, I>>,
     handle: Arc<AsyncMutex<DeviceHandle>>,
 }
 
 #[cfg(feature = "native")]
-impl Device<crate::NativeTun> {
+impl Device<crate::NativeTun, UdpTransport> {
     pub async fn native(name: &str, cfg: DeviceConfig) -> Result<Self, Error> {
         let tun = crate::NativeTun::new(name).map_err(Error::Tun)?;
-        Device::with_tun(tun, cfg).await
+        Device::with_udp(tun, cfg).await
     }
 }
 
-impl<T> Device<T>
+impl<T> Device<T, UdpTransport>
 where
     T: Tun + 'static,
 {
-    pub async fn with_tun(tun: T, cfg: DeviceConfig) -> Result<Self, Error> {
+    pub async fn with_udp(tun: T, cfg: DeviceConfig) -> Result<Self, Error> {
+        let transport = UdpTransport::bind(cfg.listen_port).await?;
+        Self::with_transport(tun, transport, cfg).await
+    }
+}
+
+impl<T, I> Device<T, I>
+where
+    T: Tun + 'static,
+    I: Transport,
+{
+    pub async fn with_transport(tun: T, transport: I, cfg: DeviceConfig) -> Result<Self, Error> {
         let token = CancellationToken::new();
         let inner = {
-            let inbound = UdpListener::bind(cfg.listen_port).await?;
+            let inbound = Inbound::new(transport);
             let settings = Mutex::new(Settings::new(inbound, cfg.private_key, cfg.fwmark));
             let peers = Mutex::new(PeerIndex::new(token.child_token(), tun.clone()));
             let rate_limiter = RateLimiter::new(1_000);
@@ -231,7 +250,7 @@ where
     }
 
     #[inline]
-    pub fn control(&self) -> DeviceControl<T> {
+    pub fn control(&self) -> DeviceControl<T, I> {
         DeviceControl {
             inner: Arc::clone(&self.inner),
             handle: Arc::clone(&self.handle),
@@ -245,9 +264,10 @@ where
     }
 }
 
-impl<T> Drop for Device<T>
+impl<T, I> Drop for Device<T, I>
 where
     T: Tun,
+    I: Transport,
 {
     fn drop(&mut self) {
         self.token.cancel();
@@ -277,17 +297,19 @@ where
 ///     Ok(())
 /// }
 #[derive(Clone)]
-pub struct DeviceControl<T>
+pub struct DeviceControl<T, I>
 where
     T: Tun + 'static,
+    I: Transport,
 {
-    inner: Arc<DeviceInner<T>>,
+    inner: Arc<DeviceInner<T, I>>,
     handle: Arc<AsyncMutex<DeviceHandle>>,
 }
 
-impl<T> DeviceControl<T>
+impl<T, I> DeviceControl<T, I>
 where
     T: Tun + 'static,
+    I: Transport,
 {
     /// Returns the name of the underlying TUN device.
     #[inline(always)]
@@ -323,14 +345,15 @@ where
     }
 
     pub async fn update_listen_port(&self, port: u16) -> Result<(), Error> {
-        {
+        let transport = {
             let settings = self.inner.settings.lock().unwrap();
             if settings.listen_port() == port {
                 debug!("The listen port is the same with the old one, skip updating");
                 return Ok(());
             }
-        }
-        let inbound = UdpListener::bind(port).await?;
+            settings.inbound.transport()
+        };
+        let inbound = Inbound::new(transport.bind_port(port).await?);
         self.inner.update_inbound(inbound);
 
         let mut handle = self.handle.lock().await;

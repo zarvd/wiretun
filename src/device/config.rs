@@ -1,9 +1,9 @@
-use crate::noise::crypto::LocalStaticSecret;
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::time::Duration;
 
 use super::Cidr;
+use crate::noise::crypto::LocalStaticSecret;
 
 /// Configuration for a device.
 ///

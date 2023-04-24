@@ -3,13 +3,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::future::join_all;
-use futures::StreamExt;
-
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, warn};
 
-use super::inbound::{Endpoint, UdpInbound};
+use super::inbound::{Endpoint, Transport};
 use super::peer::InboundEvent;
 use super::DeviceInner;
 use crate::noise::crypto::LocalStaticSecret;
@@ -25,9 +23,10 @@ pub(super) struct DeviceHandle {
 }
 
 impl DeviceHandle {
-    pub async fn spawn<T>(token: CancellationToken, inner: Arc<DeviceInner<T>>) -> Self
+    pub async fn spawn<T, I>(token: CancellationToken, inner: Arc<DeviceInner<T, I>>) -> Self
     where
         T: Tun + 'static,
+        I: Transport,
     {
         let mut me = Self {
             token: token.clone(),
@@ -39,9 +38,10 @@ impl DeviceHandle {
         me
     }
 
-    pub async fn restart_inbound<T>(&mut self, inner: Arc<DeviceInner<T>>)
+    pub async fn restart_inbound<T, I>(&mut self, inner: Arc<DeviceInner<T, I>>)
     where
         T: Tun + 'static,
+        I: Transport,
     {
         // Stop the previous tasks
         {
@@ -57,16 +57,17 @@ impl DeviceHandle {
         }
 
         let token = self.token.child_token();
-        let handles = vec![
-            tokio::spawn(loop_inbound_v4(Arc::clone(&inner), token.child_token())),
-            tokio::spawn(loop_inbound_v6(Arc::clone(&inner), token.child_token())),
-        ];
+        let handles = vec![tokio::spawn(loop_inbound(
+            Arc::clone(&inner),
+            token.child_token(),
+        ))];
         self.inbound_handles = (token, handles);
     }
 
-    pub async fn restart_outbound<T>(&mut self, inner: Arc<DeviceInner<T>>)
+    pub async fn restart_outbound<T, I>(&mut self, inner: Arc<DeviceInner<T, I>>)
     where
         T: Tun + 'static,
+        I: Transport,
     {
         let handles: Vec<_> = self.outbound_handles.1.drain(..).collect();
         join_all(handles).await;
@@ -102,32 +103,13 @@ impl Drop for DeviceHandle {
     }
 }
 
-#[inline(always)]
-async fn loop_inbound_v4<T>(inner: Arc<DeviceInner<T>>, token: CancellationToken)
+async fn loop_inbound<T, I>(inner: Arc<DeviceInner<T, I>>, token: CancellationToken)
 where
     T: Tun + 'static,
+    I: Transport,
 {
-    let inbound = inner.settings.lock().unwrap().inbound.v4();
-    loop_inbound(inner, inbound, token).await;
-}
-
-#[inline(always)]
-async fn loop_inbound_v6<T>(inner: Arc<DeviceInner<T>>, token: CancellationToken)
-where
-    T: Tun + 'static,
-{
-    let inbound = inner.settings.lock().unwrap().inbound.v6();
-    loop_inbound(inner, inbound, token).await;
-}
-
-async fn loop_inbound<T>(
-    inner: Arc<DeviceInner<T>>,
-    mut inbound: UdpInbound,
-    token: CancellationToken,
-) where
-    T: Tun + 'static,
-{
-    debug!("Device Inbound loop for {inbound} is UP");
+    let mut transport = inner.settings.lock().unwrap().inbound.transport();
+    debug!("Device Inbound loop for {transport} is UP");
     let (secret, cookie) = {
         let settings = inner.settings.lock().unwrap();
         (settings.secret.clone(), Arc::clone(&settings.cookie))
@@ -136,11 +118,11 @@ async fn loop_inbound<T>(
     loop {
         tokio::select! {
             _ = token.cancelled() => {
-                debug!("Device Inbound loop for {inbound} is DOWN");
+                debug!("Device Inbound loop for {transport} is DOWN");
                 return;
             }
-            data = inbound.next() => {
-                if let Some((endpoint, payload)) = data {
+            data = transport.recv_from() => {
+                if let Ok((endpoint, payload)) = data {
                     tick_inbound(Arc::clone(&inner), &secret, Arc::clone(&cookie), endpoint, payload).await;
                 }
             }
@@ -148,14 +130,15 @@ async fn loop_inbound<T>(
     }
 }
 
-async fn tick_inbound<T>(
-    inner: Arc<DeviceInner<T>>,
+async fn tick_inbound<T, I>(
+    inner: Arc<DeviceInner<T, I>>,
     secret: &LocalStaticSecret,
     cookie: Arc<Cookie>,
-    endpoint: Endpoint,
+    endpoint: Endpoint<I>,
     payload: Vec<u8>,
 ) where
     T: Tun + 'static,
+    I: Transport,
 {
     if Message::is_handshake(&payload) {
         if !cookie.validate_mac1(&payload) {
@@ -237,9 +220,10 @@ async fn tick_inbound<T>(
     }
 }
 
-async fn loop_outbound<T>(inner: Arc<DeviceInner<T>>, token: CancellationToken)
+async fn loop_outbound<T, I>(inner: Arc<DeviceInner<T, I>>, token: CancellationToken)
 where
     T: Tun + 'static,
+    I: Transport,
 {
     debug!("Device outbound loop is UP");
     loop {
@@ -253,9 +237,10 @@ where
     }
 }
 
-async fn tick_outbound<T>(inner: Arc<DeviceInner<T>>)
+async fn tick_outbound<T, I>(inner: Arc<DeviceInner<T, I>>)
 where
     T: Tun + 'static,
+    I: Transport,
 {
     const IPV4_HEADER_LEN: usize = 20;
     const IPV6_HEADER_LEN: usize = 40;

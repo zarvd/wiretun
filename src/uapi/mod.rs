@@ -2,8 +2,9 @@ mod connection;
 mod error;
 mod protocol;
 
-use connection::Connection;
 pub use error::Error;
+
+use connection::Connection;
 use protocol::{GetDevice, GetPeer, Request, Response, SetDevice, SetPeer};
 
 use std::path::{Path, PathBuf};
@@ -11,6 +12,7 @@ use std::path::{Path, PathBuf};
 use tokio::net::UnixListener;
 use tracing::{debug, error};
 
+use crate::device::Transport;
 use crate::{DeviceControl, PeerConfig, Tun};
 
 const SOCKET_DIR: &str = "/var/run/wireguard";
@@ -19,9 +21,10 @@ fn socket_path(iface: &str) -> PathBuf {
     Path::new(SOCKET_DIR).join(format!("{}.sock", iface))
 }
 
-pub async fn bind_and_handle<T>(device: DeviceControl<T>) -> Result<(), Error>
+pub async fn bind_and_handle<T, I>(device: DeviceControl<T, I>) -> Result<(), Error>
 where
     T: Tun + 'static,
+    I: Transport,
 {
     let listener = {
         let path = socket_path(device.tun_name());
@@ -39,9 +42,10 @@ where
     }
 }
 
-async fn handle_connection<T>(mut conn: Connection, device: DeviceControl<T>)
+async fn handle_connection<T, I>(mut conn: Connection, device: DeviceControl<T, I>)
 where
     T: Tun + 'static,
+    I: Transport,
 {
     debug!("UAPI: accepting new connection");
 
@@ -72,9 +76,10 @@ where
     }
 }
 
-async fn handle_get<T>(device: DeviceControl<T>) -> Result<Response, Error>
+async fn handle_get<T, I>(device: DeviceControl<T, I>) -> Result<Response, Error>
 where
     T: Tun + 'static,
+    I: Transport,
 {
     debug!("UAPI: received GET request");
     let cfg = device.config();
@@ -105,9 +110,10 @@ where
     }))
 }
 
-async fn handle_set<T>(device: DeviceControl<T>, req: SetDevice) -> Result<(), Error>
+async fn handle_set<T, I>(device: DeviceControl<T, I>, req: SetDevice) -> Result<(), Error>
 where
     T: Tun + 'static,
+    I: Transport,
 {
     debug!("UAPI: received SET request");
     if req.replace_peers {

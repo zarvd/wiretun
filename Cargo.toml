@@ -35,3 +35,6 @@ blake2 = "0.10"
 hmac = "0.12"
 ip_network = "0.4.1"
 ip_network_table = "0.2.0"
+
+[dev-dependencies]
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

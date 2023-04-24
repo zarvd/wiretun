@@ -18,7 +18,7 @@ use std::sync::RwLock;
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
-use crate::device::inbound::Endpoint;
+use crate::device::inbound::{Endpoint, Transport};
 use crate::noise::crypto;
 use crate::noise::crypto::PeerStaticSecret;
 use crate::noise::handshake::IncomingInitiation;
@@ -34,57 +34,62 @@ pub(crate) enum OutboundEvent {
 }
 
 #[derive(Debug)]
-pub(crate) enum InboundEvent {
+pub(crate) enum InboundEvent<I>
+where
+    I: Transport,
+{
     HanshakeInitiation {
-        endpoint: Endpoint,
+        endpoint: Endpoint<I>,
         initiation: IncomingInitiation,
     },
     HandshakeResponse {
-        endpoint: Endpoint,
+        endpoint: Endpoint<I>,
         packet: protocol::HandshakeResponse,
         session: Session,
     },
     CookieReply {
-        endpoint: Endpoint,
+        endpoint: Endpoint<I>,
         packet: protocol::CookieReply,
         session: Session,
     },
     TransportData {
-        endpoint: Endpoint,
+        endpoint: Endpoint<I>,
         packet: protocol::TransportData,
         session: Session,
     },
 }
 
-pub(crate) type InboundTx = mpsc::Sender<InboundEvent>;
-pub(crate) type InboundRx = mpsc::Receiver<InboundEvent>;
+pub(crate) type InboundTx<I> = mpsc::Sender<InboundEvent<I>>;
+pub(crate) type InboundRx<I> = mpsc::Receiver<InboundEvent<I>>;
 pub(crate) type OutboundTx = mpsc::Sender<OutboundEvent>;
 pub(crate) type OutboundRx = mpsc::Receiver<OutboundEvent>;
 
-pub(crate) struct Peer<T>
+pub(crate) struct Peer<T, I>
 where
     T: Tun,
+    I: Transport,
 {
     tun: T,
     secret: PeerStaticSecret,
     sessions: RwLock<ActiveSession>,
     handshake: RwLock<Handshake>,
-    endpoint: RwLock<Option<Endpoint>>,
-    inbound: InboundTx,
+    endpoint: RwLock<Option<Endpoint<I>>>,
+    inbound: InboundTx<I>,
     outbound: OutboundTx,
     monitor: PeerMonitor,
 }
 
-impl<T> Peer<T>
+impl<T, I> Peer<T, I>
 where
     T: Tun + 'static,
+    I: Transport,
 {
     pub(super) fn new(
         tun: T,
         secret: PeerStaticSecret,
         session_index: SessionIndex,
-        endpoint: Option<Endpoint>,
-        inbound: InboundTx,
+        endpoint: Option<Endpoint<I>>,
+        inbound: InboundTx<I>,
         outbound: OutboundTx,
     ) -> Self {
         let handshake = RwLock::new(Handshake::new(secret.clone(), session_index.clone()));
@@ -105,7 +110,7 @@ where
 
     /// Stage inbound data from tun.
     #[inline]
-    pub async fn handle_inbound(&self, e: InboundEvent) {
+    pub async fn handle_inbound(&self, e: InboundEvent<I>) {
         if let Err(e) = self.inbound.send(e).await {
             warn!("{} not able to handle inbound: {}", self, e);
         }
@@ -131,13 +136,13 @@ where
     /// Update the endpoint of the peer.
     /// Could be called by IPC or the inbound loop.
     #[inline]
-    pub fn update_endpoint(&self, endpoint: Endpoint) {
+    pub fn update_endpoint(&self, endpoint: Endpoint<I>) {
         let mut guard = self.endpoint.write().unwrap();
         let _ = guard.insert(endpoint);
     }
 
     #[inline]
-    pub fn endpoint(&self) -> Option<Endpoint> {
+    pub fn endpoint(&self) -> Option<Endpoint<I>> {
         let endpoint = self.endpoint.read().unwrap();
         endpoint.clone()
     }
@@ -164,9 +169,10 @@ where
     }
 }
 
-impl<T> Display for Peer<T>
+impl<T, I> Display for Peer<T, I>
 where
     T: Tun + 'static,
+    I: Transport,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -177,9 +183,10 @@ where
     }
 }
 
-impl<T> Debug for Peer<T>
+impl<T, I> Debug for Peer<T, I>
 where
     T: Tun + 'static,
+    I: Transport,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Peer")

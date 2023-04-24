@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use super::{monitor, InboundEvent, InboundRx, OutboundEvent, OutboundRx, Peer, Session};
-use crate::device::Endpoint;
+use crate::device::{Endpoint, Transport};
 use crate::noise::handshake::IncomingInitiation;
 use crate::noise::protocol::{
     self, CookieReply, HandshakeResponse, TransportData, COOKIE_REPLY_PACKET_SIZE,
@@ -22,14 +22,15 @@ pub(crate) struct PeerHandle {
 }
 
 impl PeerHandle {
-    pub fn spawn<T>(
+    pub fn spawn<T, I>(
         token: CancellationToken,
-        peer: Arc<Peer<T>>,
-        inbound: InboundRx,
+        peer: Arc<Peer<T, I>>,
+        inbound: InboundRx<I>,
         outbound: OutboundRx,
     ) -> Self
     where
         T: Tun + 'static,
+        I: Transport,
     {
         let handshake_loop = tokio::spawn(loop_handshake(token.child_token(), Arc::clone(&peer)));
         let inbound_loop = tokio::spawn(loop_inbound(
@@ -74,9 +75,10 @@ impl Drop for PeerHandle {
     }
 }
 
-async fn loop_handshake<T>(token: CancellationToken, peer: Arc<Peer<T>>)
+async fn loop_handshake<T, I>(token: CancellationToken, peer: Arc<Peer<T, I>>)
 where
     T: Tun + 'static,
+    I: Transport,
 {
     debug!("Handshake loop for {peer} is UP");
     while !token.is_cancelled() {
@@ -98,9 +100,10 @@ where
 }
 
 // Send to endpoint if connected, otherwise queue for later
-async fn loop_outbound<T>(token: CancellationToken, peer: Arc<Peer<T>>, mut rx: OutboundRx)
+async fn loop_outbound<T, I>(token: CancellationToken, peer: Arc<Peer<T, I>>, mut rx: OutboundRx)
 where
     T: Tun + 'static,
+    I: Transport,
 {
     debug!("Outbound loop for {peer} is UP");
 
@@ -124,9 +127,10 @@ where
     debug!("Outbound loop for {peer} is DOWN");
 }
 
-async fn tick_outbound<T>(peer: Arc<Peer<T>>, data: Vec<u8>)
+async fn tick_outbound<T, I>(peer: Arc<Peer<T, I>>, data: Vec<u8>)
 where
     T: Tun + 'static,
+    I: Transport,
 {
     let session = { peer.sessions.read().unwrap().current().clone() };
     let session = if let Some(s) = session { s } else { return };
@@ -144,9 +148,10 @@ where
 }
 
 // Send to tun if we have a valid session
-async fn loop_inbound<T>(token: CancellationToken, peer: Arc<Peer<T>>, mut rx: InboundRx)
+async fn loop_inbound<T, I>(token: CancellationToken, peer: Arc<Peer<T, I>>, mut rx: InboundRx<I>)
 where
     T: Tun + 'static,
+    I: Transport,
 {
     debug!("Inbound loop for {peer} is UP");
 
@@ -165,9 +170,10 @@ where
     debug!("Inbound loop for {peer} is DOWN");
 }
 
-async fn tick_inbound<T>(peer: Arc<Peer<T>>, event: InboundEvent)
+async fn tick_inbound<T, I>(peer: Arc<Peer<T, I>>, event: InboundEvent<I>)
 where
     T: Tun + 'static,
+    I: Transport,
 {
     match event {
         InboundEvent::HanshakeInitiation {
@@ -196,12 +202,13 @@ mod inbound {
     use super::*;
     use tracing::error;
 
-    pub(super) async fn handle_handshake_initiation<T>(
-        peer: Arc<Peer<T>>,
-        endpoint: Endpoint,
+    pub(super) async fn handle_handshake_initiation<T, I>(
+        peer: Arc<Peer<T, I>>,
+        endpoint: Endpoint<I>,
         initiation: IncomingInitiation,
     ) where
         T: Tun + 'static,
+        I: Transport,
     {
         peer.monitor
             .traffic()
@@ -224,13 +231,14 @@ mod inbound {
         }
     }
 
-    pub(super) async fn handle_handshake_response<T>(
-        peer: Arc<Peer<T>>,
-        endpoint: Endpoint,
+    pub(super) async fn handle_handshake_response<T, I>(
+        peer: Arc<Peer<T, I>>,
+        endpoint: Endpoint<I>,
         packet: HandshakeResponse,
         _session: Session,
     ) where
         T: Tun + 'static,
+        I: Transport,
     {
         peer.monitor
             .traffic()
@@ -259,24 +267,26 @@ mod inbound {
         }
     }
 
-    pub(super) async fn handle_cookie_reply<T>(
-        peer: Arc<Peer<T>>,
-        _endpoint: Endpoint,
+    pub(super) async fn handle_cookie_reply<T, I>(
+        peer: Arc<Peer<T, I>>,
+        _endpoint: Endpoint<I>,
         _packet: CookieReply,
         _session: Session,
     ) where
         T: Tun + 'static,
+        I: Transport,
     {
         peer.monitor.traffic().inbound(COOKIE_REPLY_PACKET_SIZE);
     }
 
-    pub(super) async fn handle_transport_data<T>(
-        peer: Arc<Peer<T>>,
-        endpoint: Endpoint,
+    pub(super) async fn handle_transport_data<T, I>(
+        peer: Arc<Peer<T, I>>,
+        endpoint: Endpoint<I>,
         packet: TransportData,
         session: Session,
     ) where
         T: Tun + 'static,
+        I: Transport,
     {
         peer.monitor.traffic().inbound(packet.packet_len());
         {
