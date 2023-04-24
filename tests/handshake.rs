@@ -13,7 +13,7 @@ use wiretun::*;
 async fn test_noop_when_no_endpoint() {
     let secret = TestKit::gen_local_secret();
     let tun = StubTun::new();
-    let transport = StubTransport::new();
+    let transport = StubTransport::bind(0).await.unwrap();
     let cfg = DeviceConfig::default()
         .private_key(secret.private_key().to_bytes())
         .peer(
@@ -38,7 +38,7 @@ async fn test_noop_when_no_endpoint() {
 async fn test_keep_initiation_when_no_response() {
     let secret = TestKit::gen_local_secret();
     let tun = StubTun::new();
-    let transport = StubTransport::new();
+    let transport = StubTransport::bind(0).await.unwrap();
     let peer_pub = TestKit::gen_local_secret().public_key().to_bytes();
     let peer_endpoint = "10.0.0.1:80".parse().unwrap();
     let cfg = DeviceConfig::default()
@@ -86,7 +86,7 @@ async fn test_complete_handshake() {
     let secret2 = TestKit::gen_local_secret();
     let (_device1, tun1, transport1) = {
         let tun = StubTun::new();
-        let transport = StubTransport::new();
+        let transport = StubTransport::bind(0).await.unwrap();
         let cfg = DeviceConfig::default()
             .private_key(secret1.private_key().to_bytes())
             .peer(
@@ -102,7 +102,7 @@ async fn test_complete_handshake() {
     };
     let (_device2, tun2, transport2) = {
         let tun = StubTun::new();
-        let transport = StubTransport::new();
+        let transport = StubTransport::bind(0).await.unwrap();
         let cfg = DeviceConfig::default()
             .private_key(secret2.private_key().to_bytes())
             .peer(
@@ -152,14 +152,14 @@ async fn test_complete_handshake() {
     let (mut d1_completed, mut d2_completed) = (false, false);
 
     for (_, data) in transport1.outbound_recording() {
-        if let Ok(_) = TransportData::try_from(data.as_slice()) {
+        if TransportData::try_from(data.as_slice()).is_ok() {
             d1_completed = true;
             break;
         }
     }
 
     for (_, data) in transport2.outbound_recording() {
-        if let Ok(_) = TransportData::try_from(data.as_slice()) {
+        if TransportData::try_from(data.as_slice()).is_ok() {
             d2_completed = true;
             break;
         }

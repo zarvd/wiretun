@@ -8,15 +8,24 @@ use socket2::{Domain, Protocol, Type};
 use tokio::net::UdpSocket;
 use tracing::{error, info};
 
+/// Transport is a trait that represents a network transport.
 #[async_trait]
 pub trait Transport: Clone + Sync + Send + Unpin + Display + 'static {
+    /// Binds to the given port and returns a new transport.
+    /// When the port is 0, the implementation should choose a random port.
+    async fn bind(port: u16) -> Result<Self, io::Error>;
+
+    /// Returns the port that the transport is bound to.
     fn port(&self) -> u16;
-    async fn bind_port(&self, port: u16) -> Result<Self, io::Error>; // XXX: refactor
+
+    /// Sends data to the given endpoint.
     async fn send_to(&self, data: &[u8], endpoint: &Endpoint<Self>) -> Result<(), io::Error>;
+
+    /// Receives data from the transport.
     async fn recv_from(&mut self) -> Result<(Endpoint<Self>, Vec<u8>), io::Error>;
 }
 
-pub struct Inbound<I>
+pub(super) struct Inbound<I>
 where
     I: Transport,
 {
@@ -37,10 +46,12 @@ where
         self.transport.port()
     }
 
+    #[inline(always)]
     pub fn transport(&self) -> I {
         self.transport.clone()
     }
 
+    #[inline(always)]
     pub fn endpoint_for(&self, dst: SocketAddr) -> Endpoint<I> {
         Endpoint::new(self.transport(), dst)
     }
@@ -56,15 +67,18 @@ impl<I> Endpoint<I>
 where
     I: Transport,
 {
+    /// Creates a new endpoint with the given transport and destination.
     pub fn new(transport: I, dst: SocketAddr) -> Self {
         Self { transport, dst }
     }
 
+    /// Sends data to the endpoint.
     #[inline]
     pub async fn send(&self, buf: &[u8]) -> Result<(), io::Error> {
         self.transport.send_to(buf, self).await
     }
 
+    /// Returns the destination of the endpoint.
     #[inline(always)]
     pub fn dst(&self) -> SocketAddr {
         self.dst
@@ -79,32 +93,17 @@ impl<I> Debug for Endpoint<I> {
     }
 }
 
+/// UdpTransport is a UDP transport that implements the [`Transport`] trait.
 #[derive(Clone)]
 pub struct UdpTransport {
+    port: u16,
     ipv4: Arc<UdpSocket>,
     ipv6: Arc<UdpSocket>,
-    port: u16,
     ipv4_buf: Vec<u8>,
     ipv6_buf: Vec<u8>,
 }
 
 impl UdpTransport {
-    pub async fn bind(port: u16) -> Result<Self, io::Error> {
-        let (ipv4, ipv6, port) = Self::bind_socket(port).await?;
-        info!(
-            "Listening on {} / {}",
-            ipv4.local_addr()?,
-            ipv6.local_addr()?
-        );
-        Ok(Self {
-            ipv4,
-            ipv6,
-            port,
-            ipv4_buf: vec![],
-            ipv6_buf: vec![],
-        })
-    }
-
     async fn bind_socket(port: u16) -> Result<(Arc<UdpSocket>, Arc<UdpSocket>, u16), io::Error> {
         let max_retry = if port == 0 { 10 } else { 1 };
         let mut err = None;
@@ -167,8 +166,20 @@ impl Transport for UdpTransport {
         self.port
     }
 
-    async fn bind_port(&self, port: u16) -> Result<Self, io::Error> {
-        Self::bind(port).await
+    async fn bind(port: u16) -> Result<Self, io::Error> {
+        let (ipv4, ipv6, port) = Self::bind_socket(port).await?;
+        info!(
+            "Listening on {} / {}",
+            ipv4.local_addr()?,
+            ipv6.local_addr()?
+        );
+        Ok(Self {
+            port,
+            ipv4,
+            ipv6,
+            ipv4_buf: vec![],
+            ipv6_buf: vec![],
+        })
     }
 
     async fn send_to(&self, data: &[u8], endpoint: &Endpoint<Self>) -> Result<(), io::Error> {

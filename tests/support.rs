@@ -123,6 +123,8 @@ type TransportPacket = (Endpoint<StubTransport>, Vec<u8>);
 
 #[derive(Clone)]
 pub struct StubTransport {
+    port: u16,
+
     inbound_sent: Arc<AtomicU64>,
     inbound_recording: Arc<StdMutex<Vec<TransportPacket>>>,
     outbound_sent: Arc<AtomicU64>,
@@ -135,22 +137,6 @@ pub struct StubTransport {
 }
 
 impl StubTransport {
-    pub fn new() -> Self {
-        let (inbound_tx, inbound_rx) = mpsc::channel(256);
-        let (outbound_tx, outbound_rx) = mpsc::channel(256);
-        Self {
-            inbound_sent: Arc::new(AtomicU64::new(0)),
-            inbound_recording: Arc::new(StdMutex::new(vec![])),
-            outbound_sent: Arc::new(AtomicU64::new(0)),
-            outbound_recording: Arc::new(StdMutex::new(vec![])),
-
-            outbound_tx,
-            outbound_rx: Arc::new(Mutex::new(outbound_rx)),
-            inbound_tx,
-            inbound_rx: Arc::new(Mutex::new(inbound_rx)),
-        }
-    }
-
     #[inline(always)]
     pub fn inbound_sent(&self) -> u64 {
         self.inbound_sent.load(Ordering::Relaxed)
@@ -189,12 +175,6 @@ impl StubTransport {
     }
 }
 
-impl Default for StubTransport {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Display for StubTransport {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "StubTransport")
@@ -203,12 +183,26 @@ impl Display for StubTransport {
 
 #[async_trait]
 impl Transport for StubTransport {
-    fn port(&self) -> u16 {
-        0
+    async fn bind(port: u16) -> Result<Self, io::Error> {
+        let (inbound_tx, inbound_rx) = mpsc::channel(256);
+        let (outbound_tx, outbound_rx) = mpsc::channel(256);
+        Ok(Self {
+            port,
+
+            inbound_sent: Arc::new(AtomicU64::new(0)),
+            inbound_recording: Arc::new(StdMutex::new(vec![])),
+            outbound_sent: Arc::new(AtomicU64::new(0)),
+            outbound_recording: Arc::new(StdMutex::new(vec![])),
+
+            outbound_tx,
+            outbound_rx: Arc::new(Mutex::new(outbound_rx)),
+            inbound_tx,
+            inbound_rx: Arc::new(Mutex::new(inbound_rx)),
+        })
     }
 
-    async fn bind_port(&self, _port: u16) -> Result<Self, io::Error> {
-        Ok(Self::new())
+    fn port(&self) -> u16 {
+        self.port
     }
 
     async fn send_to(&self, data: &[u8], endpoint: &Endpoint<Self>) -> Result<(), io::Error> {
