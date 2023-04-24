@@ -68,7 +68,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         Mode::Stub => {
             info!("Starting Wiretun device with stub tun {}", app.name);
-            let device = Device::new(StubTun::new(&app.name), cfg).await?;
+            let device = Device::with_udp(StubTun::new(&app.name), cfg).await?;
             uapi::bind_and_handle(device.control()).await?;
             device.terminate().await;
         }
