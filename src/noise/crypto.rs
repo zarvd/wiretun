@@ -33,6 +33,12 @@ pub struct LocalStaticSecret {
 }
 
 impl LocalStaticSecret {
+    #[inline(always)]
+    pub fn random() -> Self {
+        Self::new(PrivateKey::random_from_rng(OsRng).to_bytes())
+    }
+
+    #[inline(always)]
     pub fn new(private_key: [u8; 32]) -> Self {
         let private = PrivateKey::from(private_key);
         let public = PublicKey::from(&private);
@@ -40,14 +46,17 @@ impl LocalStaticSecret {
         Self { private, public }
     }
 
+    #[inline(always)]
     pub fn with_peer(self, peer_public_key: [u8; 32]) -> PeerStaticSecret {
         PeerStaticSecret::new(self, peer_public_key)
     }
 
+    #[inline(always)]
     pub fn private_key(&self) -> &PrivateKey {
         &self.private
     }
 
+    #[inline(always)]
     pub fn public_key(&self) -> &PublicKey {
         &self.public
     }
@@ -61,6 +70,7 @@ pub struct PeerStaticSecret {
 }
 
 impl PeerStaticSecret {
+    #[inline(always)]
     pub fn new(local: LocalStaticSecret, public_key: [u8; 32]) -> Self {
         let public = PublicKey::from(public_key);
         let psk = [0u8; 32];
@@ -68,20 +78,29 @@ impl PeerStaticSecret {
         Self { local, public, psk }
     }
 
+    #[inline(always)]
+    pub fn random_psk() -> [u8; 32] {
+        x25519_dalek::StaticSecret::random_from_rng(OsRng).to_bytes()
+    }
+
+    #[inline(always)]
     pub fn set_psk(&mut self, psk: [u8; 32]) {
         self.psk = psk;
     }
 
+    #[inline(always)]
+    pub fn psk(&self) -> &[u8; 32] {
+        &self.psk
+    }
+
+    #[inline(always)]
     pub fn local(&self) -> &LocalStaticSecret {
         &self.local
     }
 
+    #[inline(always)]
     pub fn public_key(&self) -> &PublicKey {
         &self.public
-    }
-
-    pub fn psk(&self) -> &[u8; 32] {
-        &self.psk
     }
 }
 
