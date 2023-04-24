@@ -47,6 +47,7 @@ pub use device::{
     Cidr, Device, DeviceConfig, DeviceControl, Endpoint, ParseCidrError, PeerConfig, Transport,
     UdpTransport,
 };
+pub use noise::crypto::{LocalStaticSecret, PeerStaticSecret};
 pub use tun::{Error as TunError, Tun};
 
 #[cfg(feature = "native")]
