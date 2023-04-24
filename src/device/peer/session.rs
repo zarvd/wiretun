@@ -1,10 +1,11 @@
-use rand_core::{OsRng, RngCore};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
+
+use rand_core::{OsRng, RngCore};
 
 use crate::device::Error;
 use crate::noise;

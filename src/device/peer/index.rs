@@ -9,34 +9,37 @@ use tokio_util::sync::CancellationToken;
 use super::cidr::{Cidr, CidrTable};
 use super::session::{Session, SessionIndex};
 use super::{Peer, PeerHandle, PeerMetrics};
-use crate::device::inbound::Endpoint;
+use crate::device::inbound::{Endpoint, Transport};
 use crate::noise::crypto::PeerStaticSecret;
 use crate::{PeerConfig, Tun};
 
-struct PeerEntry<T>
+struct PeerEntry<T, I>
 where
     T: Tun + 'static,
+    I: Transport,
 {
-    peer: Arc<Peer<T>>,
+    peer: Arc<Peer<T, I>>,
     allowed_ips: HashSet<Cidr>,
     #[allow(unused)]
     handle: PeerHandle,
 }
 
-pub(crate) struct PeerIndex<T>
+pub(crate) struct PeerIndex<T, I>
 where
     T: Tun + 'static,
+    I: Transport,
 {
     token: CancellationToken,
     tun: T,
     sessions: SessionIndex,
-    peers: HashMap<[u8; 32], PeerEntry<T>>,
-    ips: CidrTable<Arc<Peer<T>>>,
+    peers: HashMap<[u8; 32], PeerEntry<T, I>>,
+    ips: CidrTable<Arc<Peer<T, I>>>,
 }
 
-impl<T> PeerIndex<T>
+impl<T, I> PeerIndex<T, I>
 where
     T: Tun + 'static,
+    I: Transport,
 {
     pub fn new(token: CancellationToken, tun: T) -> Self {
         Self {
@@ -56,17 +59,17 @@ where
     }
 
     /// Returns the peer that matches the given public key.
-    pub fn get_by_key(&self, public_key: &[u8; 32]) -> Option<Arc<Peer<T>>> {
+    pub fn get_by_key(&self, public_key: &[u8; 32]) -> Option<Arc<Peer<T, I>>> {
         self.peers.get(public_key).map(|e| Arc::clone(&e.peer))
     }
 
     /// Returns the peer that matches the given IP address.
-    pub fn get_by_ip(&self, ip: IpAddr) -> Option<Arc<Peer<T>>> {
+    pub fn get_by_ip(&self, ip: IpAddr) -> Option<Arc<Peer<T, I>>> {
         self.ips.get_by_ip(ip).cloned()
     }
 
     /// Returns the peer that matches the index of the session.
-    pub fn get_session_by_index(&self, i: u32) -> Option<(Session, Arc<Peer<T>>)> {
+    pub fn get_session_by_index(&self, i: u32) -> Option<(Session, Arc<Peer<T, I>>)> {
         match self.sessions.get_by_index(i) {
             Some(session) => self
                 .get_by_key(session.secret().public_key().as_bytes())
@@ -76,7 +79,7 @@ where
     }
 
     #[inline]
-    pub fn all(&self) -> Vec<Arc<Peer<T>>> {
+    pub fn all(&self) -> Vec<Arc<Peer<T, I>>> {
         self.peers
             .values()
             .map(|entry| Arc::clone(&entry.peer))
@@ -87,8 +90,8 @@ where
         &mut self,
         secret: PeerStaticSecret,
         allowed_ips: HashSet<Cidr>,
-        endpoint: Option<Endpoint>,
-    ) -> Arc<Peer<T>> {
+        endpoint: Option<Endpoint<I>>,
+    ) -> Arc<Peer<T, I>> {
         let entry = self
             .peers
             .entry(secret.public_key().to_bytes())
@@ -177,9 +180,10 @@ where
     }
 }
 
-impl<T> Drop for PeerIndex<T>
+impl<T, P> Drop for PeerIndex<T, P>
 where
     T: Tun + 'static,
+    P: Transport,
 {
     fn drop(&mut self) {
         self.token.cancel();

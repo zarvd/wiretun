@@ -30,3 +30,28 @@ impl RateLimiter {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ratelimiter_fetch_token() {
+        let rl = RateLimiter::new(5);
+        assert!(rl.fetch_token());
+        assert!(rl.fetch_token());
+        assert!(rl.fetch_token());
+        assert!(rl.fetch_token());
+        assert!(rl.fetch_token());
+        assert!(!rl.fetch_token());
+        assert!(!rl.fetch_token());
+        assert!(!rl.fetch_token());
+        std::thread::sleep(Duration::from_secs(1));
+        assert!(rl.fetch_token());
+        assert!(rl.fetch_token());
+        assert!(rl.fetch_token());
+        assert!(rl.fetch_token());
+        assert!(rl.fetch_token());
+        assert!(!rl.fetch_token());
+    }
+}

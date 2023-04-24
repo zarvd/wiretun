@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 .allowed_ip("10.0.0.1".parse::<Cidr>()?),
         );
     let tun = StubTun::new();
-    let device = Device::with_tun(tun, cfg).await?;
+    let device = Device::new(tun, cfg).await?;
 
     let ctrl = device.control();
     tokio::spawn(uapi::bind_and_handle(ctrl));

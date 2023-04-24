@@ -43,7 +43,10 @@ mod device;
 pub mod noise;
 mod tun;
 
-pub use device::{Cidr, Device, DeviceConfig, DeviceControl, ParseCidrError, PeerConfig};
+pub use device::{
+    Cidr, Device, DeviceConfig, DeviceControl, Endpoint, ParseCidrError, PeerConfig, Transport,
+    UdpTransport,
+};
 pub use tun::{Error as TunError, Tun};
 
 #[cfg(feature = "native")]
