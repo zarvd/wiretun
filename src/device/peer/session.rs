@@ -102,7 +102,11 @@ impl Debug for Session {
 
 impl Display for Session {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "Session[{}]", self.sender_index)
+        write!(
+            f,
+            "Session[{} - {}]",
+            self.sender_index, self.receiver_index
+        )
     }
 }
 

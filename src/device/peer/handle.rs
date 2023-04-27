@@ -202,7 +202,7 @@ mod inbound {
     use super::*;
     use tracing::{error, instrument};
 
-    #[instrument]
+    #[instrument(skip(initiation))]
     pub(super) async fn handle_handshake_initiation<T, I>(
         peer: Arc<Peer<T, I>>,
         endpoint: Endpoint<I>,

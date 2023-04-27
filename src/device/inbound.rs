@@ -6,7 +6,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use socket2::{Domain, Protocol, Type};
 use tokio::net::UdpSocket;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 /// Transport is a trait that represents a network transport.
 #[async_trait]
@@ -189,6 +189,7 @@ impl Transport for UdpTransport {
     }
 
     async fn send_to(&self, data: &[u8], endpoint: &Endpoint<Self>) -> Result<(), io::Error> {
+        debug!("Sending {} bytes to {}", data.len(), endpoint.dst);
         match endpoint.dst {
             SocketAddr::V4(_) => self.ipv4.send_to(data, endpoint.dst).await?,
             SocketAddr::V6(_) => self.ipv6.send_to(data, endpoint.dst).await?,
