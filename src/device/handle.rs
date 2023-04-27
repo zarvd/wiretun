@@ -10,7 +10,7 @@ use tracing::{debug, error, warn};
 use super::inbound::{Endpoint, Transport};
 use super::peer::InboundEvent;
 use super::DeviceInner;
-use crate::noise::crypto::LocalStaticSecret;
+use crate::noise::crypto::{encode_to_hex, LocalStaticSecret};
 use crate::noise::handshake::{Cookie, IncomingInitiation};
 use crate::noise::protocol;
 use crate::noise::protocol::Message;
@@ -169,6 +169,11 @@ async fn tick_inbound<T, I>(
                     initiation,
                 })
                 .await;
+            } else {
+                debug!(
+                    "peer not found: {}",
+                    encode_to_hex(initiation.static_public_key.as_bytes())
+                );
             }
         }
         Ok(msg) => {
