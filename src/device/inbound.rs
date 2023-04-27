@@ -1,6 +1,6 @@
 use std::fmt::{Debug, Display, Formatter};
 use std::io;
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::net::{Ipv6Addr, SocketAddr, SocketAddrV6, ToSocketAddrs};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -141,7 +141,18 @@ impl UdpTransport {
         let socket = socket2::Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
         socket.set_nonblocking(true)?;
         socket.set_reuse_address(true)?;
-        socket.bind(&SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port).into())?;
+        // HACK:
+        let addr = if let SocketAddr::V4(addr) = format!("fly-global-services:{port}")
+            .to_socket_addrs()
+            .unwrap()
+            .next()
+            .unwrap()
+        {
+            addr
+        } else {
+            unreachable!()
+        };
+        socket.bind(&addr.into())?;
         UdpSocket::from_std(std::net::UdpSocket::from(socket))
     }
 
