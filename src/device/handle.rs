@@ -161,6 +161,7 @@ async fn tick_inbound<T, I>(
 
     match Message::parse(&payload) {
         Ok(Message::HandshakeInitiation(p)) => {
+            debug!("HandshakeInitiation <- {endpoint}");
             let initiation = IncomingInitiation::parse(secret, &p).unwrap_or_else(|_| todo!());
             if let Some(peer) = inner.get_peer_by_key(initiation.static_public_key.as_bytes()) {
                 peer.handle_inbound(InboundEvent::HanshakeInitiation {
@@ -180,6 +181,7 @@ async fn tick_inbound<T, I>(
             if let Some((session, peer)) = inner.get_session_by_index(receiver_index) {
                 match msg {
                     Message::HandshakeResponse(packet) => {
+                        debug!("HandshakeResponse <- {endpoint}");
                         peer.handle_inbound(InboundEvent::HandshakeResponse {
                             endpoint,
                             packet,
@@ -188,6 +190,7 @@ async fn tick_inbound<T, I>(
                         .await;
                     }
                     Message::CookieReply(packet) => {
+                        debug!("CookieReply <- {endpoint}");
                         peer.handle_inbound(InboundEvent::CookieReply {
                             endpoint,
                             packet,
@@ -196,6 +199,7 @@ async fn tick_inbound<T, I>(
                         .await;
                     }
                     Message::TransportData(packet) => {
+                        debug!("TransportData <- {endpoint}");
                         if packet.counter > protocol::REJECT_AFTER_MESSAGES {
                             warn!("received too many messages from peer [index={receiver_index}]");
                             return;

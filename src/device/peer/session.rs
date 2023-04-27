@@ -1,11 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
 use rand_core::{OsRng, RngCore};
+use tracing::debug;
 
 use crate::device::Error;
 use crate::noise;
@@ -96,6 +97,12 @@ impl Debug for Session {
             .field("receiver_index", &self.receiver_index)
             .field("created_at", &self.created_at)
             .finish()
+    }
+}
+
+impl Display for Session {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "Session[{}]", self.sender_index)
     }
 }
 
@@ -300,11 +307,13 @@ impl ActiveSession {
 
     #[inline]
     fn activate(&self, session: &Session) {
+        debug!("activate {session}");
         self.index.insert(session.clone());
     }
 
     #[inline]
     fn deactivate(&self, session: &Session) {
+        debug!("deactivate {session}");
         self.index.remove(session);
     }
 }

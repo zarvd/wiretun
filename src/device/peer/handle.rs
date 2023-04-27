@@ -200,8 +200,9 @@ where
 
 mod inbound {
     use super::*;
-    use tracing::error;
+    use tracing::{error, instrument};
 
+    #[instrument]
     pub(super) async fn handle_handshake_initiation<T, I>(
         peer: Arc<Peer<T, I>>,
         endpoint: Endpoint<I>,
@@ -231,6 +232,7 @@ mod inbound {
         }
     }
 
+    #[instrument]
     pub(super) async fn handle_handshake_response<T, I>(
         peer: Arc<Peer<T, I>>,
         endpoint: Endpoint<I>,
@@ -267,6 +269,7 @@ mod inbound {
         }
     }
 
+    #[instrument]
     pub(super) async fn handle_cookie_reply<T, I>(
         peer: Arc<Peer<T, I>>,
         _endpoint: Endpoint<I>,
@@ -279,6 +282,7 @@ mod inbound {
         peer.monitor.traffic().inbound(COOKIE_REPLY_PACKET_SIZE);
     }
 
+    #[instrument]
     pub(super) async fn handle_transport_data<T, I>(
         peer: Arc<Peer<T, I>>,
         endpoint: Endpoint<I>,

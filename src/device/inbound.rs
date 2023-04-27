@@ -93,6 +93,12 @@ impl<I> Debug for Endpoint<I> {
     }
 }
 
+impl<I> Display for Endpoint<I> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Endpoint[{}]", self.dst)
+    }
+}
+
 /// UdpTransport is a UDP transport that implements the [`Transport`] trait.
 #[derive(Clone)]
 pub struct UdpTransport {
