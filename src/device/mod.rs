@@ -214,7 +214,8 @@ where
     /// Creates a new device with the given configuration.
     /// It uses UDP transport and binds to `cfg.listen_port`.
     pub async fn with_udp(tun: T, cfg: DeviceConfig) -> Result<Self, Error> {
-        let transport = UdpTransport::bind(cfg.listen_port).await?;
+        let transport =
+            UdpTransport::bind(cfg.listen_addrs.0, cfg.listen_addrs.1, cfg.listen_port).await?;
         Self::with_transport(tun, transport, cfg).await
     }
 }
@@ -331,6 +332,7 @@ where
         let peers = self.inner.peers.lock().unwrap();
         DeviceConfig {
             private_key: settings.secret.private_key().to_bytes(),
+            listen_addrs: (settings.inbound.ipv4(), settings.inbound.ipv6()),
             listen_port: settings.listen_port(),
             fwmark: settings.fwmark,
             peers: peers
@@ -354,14 +356,15 @@ where
 
     /// Update the listen port of the device.
     pub async fn update_listen_port(&self, port: u16) -> Result<(), Error> {
-        {
+        let (ipv4, ipv6) = {
             let settings = self.inner.settings.lock().unwrap();
             if settings.listen_port() == port {
                 debug!("The listen port is the same with the old one, skip updating");
                 return Ok(());
             }
-        }
-        let inbound = Inbound::new(<I as Transport>::bind(port).await?);
+            (settings.inbound.ipv4(), settings.inbound.ipv6())
+        };
+        let inbound = Inbound::new(<I as Transport>::bind(ipv4, ipv6, port).await?);
         self.inner.update_inbound(inbound);
 
         let mut handle = self.handle.lock().await;

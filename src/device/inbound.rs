@@ -13,7 +13,11 @@ use tracing::{error, info};
 pub trait Transport: Clone + Sync + Send + Unpin + Display + 'static {
     /// Binds to the given port and returns a new transport.
     /// When the port is 0, the implementation should choose a random port.
-    async fn bind(port: u16) -> Result<Self, io::Error>;
+    async fn bind(ipv4: Ipv4Addr, ipv6: Ipv6Addr, port: u16) -> Result<Self, io::Error>;
+
+    fn ipv4(&self) -> Ipv4Addr;
+
+    fn ipv6(&self) -> Ipv6Addr;
 
     /// Returns the port that the transport is bound to.
     fn port(&self) -> u16;
@@ -39,6 +43,16 @@ where
     #[inline(always)]
     pub fn new(transport: I) -> Self {
         Self { transport }
+    }
+
+    #[inline(always)]
+    pub fn ipv4(&self) -> Ipv4Addr {
+        self.transport.ipv4()
+    }
+
+    #[inline(always)]
+    pub fn ipv6(&self) -> Ipv6Addr {
+        self.transport.ipv6()
     }
 
     #[inline(always)]
@@ -104,11 +118,15 @@ pub struct UdpTransport {
 }
 
 impl UdpTransport {
-    async fn bind_socket(port: u16) -> Result<(Arc<UdpSocket>, Arc<UdpSocket>, u16), io::Error> {
+    async fn bind_socket(
+        ipv4: Ipv4Addr,
+        ipv6: Ipv6Addr,
+        port: u16,
+    ) -> Result<(Arc<UdpSocket>, Arc<UdpSocket>, u16), io::Error> {
         let max_retry = if port == 0 { 10 } else { 1 };
         let mut err = None;
         for _ in 0..max_retry {
-            let ipv4 = match Self::bind_socket_v4(port).await {
+            let ipv4 = match Self::bind_socket_v4(SocketAddrV4::new(ipv4, port)).await {
                 Ok(s) => s,
                 Err(e) => {
                     err = Some(e);
@@ -116,7 +134,7 @@ impl UdpTransport {
                 }
             };
             let port = ipv4.local_addr()?.port();
-            let ipv6 = match Self::bind_socket_v6(port).await {
+            let ipv6 = match Self::bind_socket_v6(SocketAddrV6::new(ipv6, port, 0, 0)).await {
                 Ok(s) => s,
                 Err(e) => {
                     err = Some(e);
@@ -131,20 +149,20 @@ impl UdpTransport {
         Err(e)
     }
 
-    async fn bind_socket_v4(port: u16) -> Result<UdpSocket, io::Error> {
+    async fn bind_socket_v4(addr: SocketAddrV4) -> Result<UdpSocket, io::Error> {
         let socket = socket2::Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
         socket.set_nonblocking(true)?;
         socket.set_reuse_address(true)?;
-        socket.bind(&SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, port).into())?;
+        socket.bind(&addr.into())?;
         UdpSocket::from_std(std::net::UdpSocket::from(socket))
     }
 
-    async fn bind_socket_v6(port: u16) -> Result<UdpSocket, io::Error> {
+    async fn bind_socket_v6(addr: SocketAddrV6) -> Result<UdpSocket, io::Error> {
         let socket = socket2::Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?;
         socket.set_only_v6(true)?;
         socket.set_nonblocking(true)?;
         socket.set_reuse_address(true)?;
-        socket.bind(&SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, port, 0, 0).into())?;
+        socket.bind(&addr.into())?;
         UdpSocket::from_std(std::net::UdpSocket::from(socket))
     }
 }
@@ -166,8 +184,8 @@ impl Transport for UdpTransport {
         self.port
     }
 
-    async fn bind(port: u16) -> Result<Self, io::Error> {
-        let (ipv4, ipv6, port) = Self::bind_socket(port).await?;
+    async fn bind(ipv4: Ipv4Addr, ipv6: Ipv6Addr, port: u16) -> Result<Self, io::Error> {
+        let (ipv4, ipv6, port) = Self::bind_socket(ipv4, ipv6, port).await?;
         info!(
             "Listening on {} / {}",
             ipv4.local_addr()?,
@@ -210,5 +228,21 @@ impl Transport for UdpTransport {
         };
 
         Ok((Endpoint::new(self.clone(), addr), data))
+    }
+
+    fn ipv4(&self) -> Ipv4Addr {
+        if let SocketAddr::V4(addr) = self.ipv4.local_addr().unwrap() {
+            *addr.ip()
+        } else {
+            unreachable!()
+        }
+    }
+
+    fn ipv6(&self) -> Ipv6Addr {
+        if let SocketAddr::V6(addr) = self.ipv6.local_addr().unwrap() {
+            *addr.ip()
+        } else {
+            unreachable!()
+        }
     }
 }

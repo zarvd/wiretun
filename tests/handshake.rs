@@ -1,6 +1,6 @@
 mod support;
 
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Duration;
 
 use tokio::time;
@@ -13,7 +13,9 @@ use wiretun::*;
 async fn test_noop_when_no_endpoint() {
     let secret = TestKit::gen_local_secret();
     let tun = StubTun::new();
-    let transport = StubTransport::bind(0).await.unwrap();
+    let transport = StubTransport::bind(Ipv4Addr::UNSPECIFIED, Ipv6Addr::UNSPECIFIED, 0)
+        .await
+        .unwrap();
     let cfg = DeviceConfig::default()
         .private_key(secret.private_key().to_bytes())
         .peer(
@@ -38,7 +40,9 @@ async fn test_noop_when_no_endpoint() {
 async fn test_keep_initiation_when_no_response() {
     let secret = TestKit::gen_local_secret();
     let tun = StubTun::new();
-    let transport = StubTransport::bind(0).await.unwrap();
+    let transport = StubTransport::bind(Ipv4Addr::UNSPECIFIED, Ipv6Addr::UNSPECIFIED, 0)
+        .await
+        .unwrap();
     let peer_pub = TestKit::gen_local_secret().public_key().to_bytes();
     let peer_endpoint = "10.0.0.1:80".parse().unwrap();
     let cfg = DeviceConfig::default()
@@ -86,7 +90,9 @@ async fn test_complete_handshake() {
     let secret2 = TestKit::gen_local_secret();
     let (_device1, tun1, transport1) = {
         let tun = StubTun::new();
-        let transport = StubTransport::bind(0).await.unwrap();
+        let transport = StubTransport::bind(Ipv4Addr::UNSPECIFIED, Ipv6Addr::UNSPECIFIED, 0)
+            .await
+            .unwrap();
         let cfg = DeviceConfig::default()
             .private_key(secret1.private_key().to_bytes())
             .peer(
@@ -102,7 +108,9 @@ async fn test_complete_handshake() {
     };
     let (_device2, tun2, transport2) = {
         let tun = StubTun::new();
-        let transport = StubTransport::bind(0).await.unwrap();
+        let transport = StubTransport::bind(Ipv4Addr::UNSPECIFIED, Ipv6Addr::UNSPECIFIED, 0)
+            .await
+            .unwrap();
         let cfg = DeviceConfig::default()
             .private_key(secret2.private_key().to_bytes())
             .peer(

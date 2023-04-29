@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Duration;
 
 use super::Cidr;
@@ -17,9 +17,10 @@ use crate::noise::crypto::LocalStaticSecret;
 ///     .private_key([0; 32])
 ///     .peer(PeerConfig::default().public_key([0; 32]).allowed_ip("10.0.0.0/24".parse::<Cidr>().unwrap()));
 /// ```
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct DeviceConfig {
     pub private_key: [u8; 32],
+    pub listen_addrs: (Ipv4Addr, Ipv6Addr),
     pub listen_port: u16,
     pub fwmark: u32,
     pub peers: HashMap<[u8; 32], PeerConfig>,
@@ -43,6 +44,18 @@ impl DeviceConfig {
     }
 
     #[inline(always)]
+    pub fn listen_addr_v4(mut self, addr: Ipv4Addr) -> Self {
+        self.listen_addrs.0 = addr;
+        self
+    }
+
+    #[inline(always)]
+    pub fn listen_addr_v6(mut self, addr: Ipv6Addr) -> Self {
+        self.listen_addrs.1 = addr;
+        self
+    }
+
+    #[inline(always)]
     pub fn listen_port(mut self, port: u16) -> Self {
         self.listen_port = port;
         self
@@ -57,6 +70,18 @@ impl DeviceConfig {
     #[inline(always)]
     pub fn local_secret(&self) -> LocalStaticSecret {
         LocalStaticSecret::new(self.private_key)
+    }
+}
+
+impl Default for DeviceConfig {
+    fn default() -> Self {
+        Self {
+            private_key: [0; 32],
+            listen_addrs: (Ipv4Addr::UNSPECIFIED, Ipv6Addr::UNSPECIFIED),
+            listen_port: 0,
+            fwmark: 0,
+            peers: HashMap::new(),
+        }
     }
 }
 
