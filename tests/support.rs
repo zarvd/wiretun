@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 
@@ -123,6 +124,8 @@ type TransportPacket = (Endpoint<StubTransport>, Vec<u8>);
 
 #[derive(Clone)]
 pub struct StubTransport {
+    ipv4: Ipv4Addr,
+    ipv6: Ipv6Addr,
     port: u16,
 
     inbound_sent: Arc<AtomicU64>,
@@ -183,10 +186,12 @@ impl Display for StubTransport {
 
 #[async_trait]
 impl Transport for StubTransport {
-    async fn bind(port: u16) -> Result<Self, io::Error> {
+    async fn bind(ipv4: Ipv4Addr, ipv6: Ipv6Addr, port: u16) -> Result<Self, io::Error> {
         let (inbound_tx, inbound_rx) = mpsc::channel(256);
         let (outbound_tx, outbound_rx) = mpsc::channel(256);
         Ok(Self {
+            ipv4,
+            ipv6,
             port,
 
             inbound_sent: Arc::new(AtomicU64::new(0)),
@@ -199,6 +204,14 @@ impl Transport for StubTransport {
             inbound_tx,
             inbound_rx: Arc::new(Mutex::new(inbound_rx)),
         })
+    }
+
+    fn ipv4(&self) -> Ipv4Addr {
+        self.ipv4
+    }
+
+    fn ipv6(&self) -> Ipv6Addr {
+        self.ipv6
     }
 
     fn port(&self) -> u16 {
