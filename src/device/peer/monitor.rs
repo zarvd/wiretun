@@ -56,7 +56,7 @@ impl HandshakeMonitor {
 
     #[inline]
     fn is_max_attempt(&self) -> bool {
-        self.attempt_before.before(Instant::now())
+        self.attempt_before.to_std() < Instant::now()
     }
 }
 
@@ -164,10 +164,8 @@ impl PeerMonitor {
             return false;
         }
 
-        if self
-            .handshake
-            .attempt_before
-            .before(self.handshake.last_complete_at.to_std() + REKEY_AFTER_TIME)
+        if self.handshake.attempt_before.to_std()
+            < self.handshake.last_complete_at.to_std() + REKEY_AFTER_TIME
         {
             self.handshake.reset_attempt();
         }
