@@ -33,7 +33,7 @@ pub struct PeerConfig {
     pub allowed_ips: HashSet<Cidr>,
     pub endpoint: Option<SocketAddr>,
     pub preshared_key: Option<[u8; 32]>,
-    pub persistent_keepalive: Option<u16>,
+    pub persistent_keepalive: Option<Duration>,
 }
 
 impl DeviceConfig {
@@ -118,7 +118,7 @@ impl PeerConfig {
 
     #[inline(always)]
     pub fn persistent_keepalive(mut self, interval: Duration) -> Self {
-        self.persistent_keepalive = Some(interval.as_secs() as _);
+        self.persistent_keepalive = Some(interval);
         self
     }
 }

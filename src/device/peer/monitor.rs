@@ -8,7 +8,7 @@ const REKEY_AFTER_TIME: Duration = Duration::from_secs(120);
 const REJECT_AFTER_TIME: Duration = Duration::from_secs(180);
 const REKEY_ATTEMPT_TIME: Duration = Duration::from_secs(90);
 const REKEY_TIMEOUT: Duration = Duration::from_secs(5);
-pub const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(10);
+const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub(super) struct HandshakeMonitor {
     last_attempt_at: AtomicInstant,
@@ -62,6 +62,7 @@ impl HandshakeMonitor {
 
 pub(super) struct TrafficMonitor {
     last_sent_at: AtomicInstant,
+    last_recv_at: AtomicInstant,
     tx_messages: AtomicU64,
     rx_messages: AtomicU64,
     tx_bytes: AtomicU64,
@@ -71,7 +72,8 @@ pub(super) struct TrafficMonitor {
 impl TrafficMonitor {
     pub fn new() -> Self {
         Self {
-            last_sent_at: AtomicInstant::from_std(Instant::now() - KEEPALIVE_TIMEOUT),
+            last_sent_at: AtomicInstant::from_std(Instant::now()),
+            last_recv_at: AtomicInstant::from_std(Instant::now() - REKEY_TIMEOUT),
             tx_messages: AtomicU64::new(0),
             rx_messages: AtomicU64::new(0),
             tx_bytes: AtomicU64::new(0),
@@ -95,22 +97,60 @@ impl TrafficMonitor {
     }
 }
 
-pub(super) struct PeerMonitor {
-    handshake: HandshakeMonitor,
-    traffic: TrafficMonitor,
+pub(super) struct KeepAliveMonitor {
+    last_attempt_at: AtomicInstant,
+    perisistent_keepalive_interval: Option<Duration>,
 }
 
-impl PeerMonitor {
-    pub fn new() -> Self {
+impl KeepAliveMonitor {
+    pub fn new(persistent_keepalive_interval: Option<Duration>) -> Self {
         Self {
-            handshake: HandshakeMonitor::new(),
-            traffic: TrafficMonitor::new(),
+            last_attempt_at: AtomicInstant::now(),
+            perisistent_keepalive_interval: persistent_keepalive_interval,
         }
     }
 
     #[inline]
-    pub fn can_keepalive(&self) -> bool {
-        self.traffic.last_sent_at.elapsed() >= KEEPALIVE_TIMEOUT
+    pub fn next_attempt_in(&self, traffic: &TrafficMonitor) -> Instant {
+        if self.last_attempt_at.elapsed() >= KEEPALIVE_TIMEOUT
+            && traffic.last_recv_at.to_std() > traffic.last_sent_at.to_std()
+        {
+            if traffic.last_recv_at.elapsed() > KEEPALIVE_TIMEOUT {
+                return Instant::now();
+            } else {
+                return Instant::now() + KEEPALIVE_TIMEOUT - traffic.last_recv_at.elapsed();
+            }
+        }
+
+        self.perisistent_keepalive_interval
+            .map(|v| self.last_attempt_at.to_std() + v)
+            .unwrap_or_else(|| Instant::now() + REKEY_AFTER_TIME)
+    }
+
+    #[inline]
+    pub fn can(&self, traffic: &TrafficMonitor) -> bool {
+        self.next_attempt_in(traffic) <= Instant::now()
+    }
+
+    #[inline]
+    pub fn attempt(&self) {
+        self.last_attempt_at.set_now();
+    }
+}
+
+pub(super) struct PeerMonitor {
+    handshake: HandshakeMonitor,
+    traffic: TrafficMonitor,
+    keepalive: KeepAliveMonitor,
+}
+
+impl PeerMonitor {
+    pub fn new(persistent_keepalive_interval: Option<Duration>) -> Self {
+        Self {
+            handshake: HandshakeMonitor::new(),
+            traffic: TrafficMonitor::new(),
+            keepalive: KeepAliveMonitor::new(persistent_keepalive_interval),
+        }
     }
 
     #[inline]
@@ -143,6 +183,11 @@ impl PeerMonitor {
     #[inline]
     pub fn handshake(&self) -> &HandshakeMonitor {
         &self.handshake
+    }
+
+    #[inline]
+    pub fn keepalive(&self) -> &KeepAliveMonitor {
+        &self.keepalive
     }
 
     #[inline]

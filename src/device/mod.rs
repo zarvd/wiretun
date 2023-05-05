@@ -120,7 +120,7 @@ where
                 secret.set_psk(psk);
             }
             let endpoint = p.endpoint.map(|addr| settings.inbound.endpoint_for(addr));
-            index.insert(secret, p.allowed_ips, endpoint);
+            index.insert(secret, p.allowed_ips, endpoint, p.persistent_keepalive);
         }
     }
 
@@ -133,7 +133,7 @@ where
             secret.set_psk(psk);
         }
         let endpoint = cfg.endpoint.map(|addr| settings.inbound.endpoint_for(addr));
-        index.insert(secret, cfg.allowed_ips, endpoint);
+        index.insert(secret, cfg.allowed_ips, endpoint, cfg.persistent_keepalive);
     }
 
     #[inline]

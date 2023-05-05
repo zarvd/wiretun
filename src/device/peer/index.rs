@@ -91,6 +91,7 @@ where
         secret: PeerStaticSecret,
         allowed_ips: HashSet<Cidr>,
         endpoint: Option<Endpoint<I>>,
+        persistent_keepalive_interval: Option<Duration>,
     ) -> Arc<Peer<T, I>> {
         let entry = self
             .peers
@@ -105,6 +106,7 @@ where
                     endpoint,
                     inbound_tx,
                     outbound_tx,
+                    persistent_keepalive_interval,
                 ));
                 let handle = PeerHandle::spawn(
                     self.token.child_token(),
