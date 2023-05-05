@@ -8,6 +8,7 @@ use connection::Connection;
 use protocol::{GetDevice, GetPeer, Request, Response, SetDevice, SetPeer};
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use tokio::net::UnixListener;
 use tracing::{debug, error};
@@ -97,7 +98,10 @@ where
                 last_handshake_at: m.last_handshake_at,
                 tx_bytes: m.tx_bytes,
                 rx_bytes: m.rx_bytes,
-                persistent_keepalive_interval: 0,
+                persistent_keepalive_interval: p
+                    .persistent_keepalive
+                    .map(|v| v.as_secs() as u32)
+                    .unwrap_or(0),
             }
         })
         .collect();
@@ -153,6 +157,9 @@ where
                 if let Some(psk) = peer.psk {
                     cfg.preshared_key = Some(psk);
                 }
+                if let Some(interval) = peer.persistent_keepalive_interval {
+                    cfg.persistent_keepalive = Some(Duration::from_secs(interval as u64));
+                }
 
                 device.remove_peer(&peer.public_key);
                 device.insert_peer(cfg);
@@ -163,7 +170,9 @@ where
                     allowed_ips: peer.allowed_ips,
                     endpoint: peer.endpoint,
                     preshared_key: peer.psk,
-                    persistent_keepalive: None,
+                    persistent_keepalive: peer
+                        .persistent_keepalive_interval
+                        .map(|v| Duration::from_secs(v as u64)),
                 });
             }
             _ => {}

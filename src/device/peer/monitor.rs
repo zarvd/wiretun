@@ -62,6 +62,7 @@ impl HandshakeMonitor {
 
 pub(super) struct TrafficMonitor {
     last_sent_at: AtomicInstant,
+    last_recv_at: AtomicInstant,
     tx_messages: AtomicU64,
     rx_messages: AtomicU64,
     tx_bytes: AtomicU64,
@@ -72,6 +73,7 @@ impl TrafficMonitor {
     pub fn new() -> Self {
         Self {
             last_sent_at: AtomicInstant::from_std(Instant::now() - KEEPALIVE_TIMEOUT),
+            last_recv_at: AtomicInstant::from_std(Instant::now() - KEEPALIVE_TIMEOUT),
             tx_messages: AtomicU64::new(0),
             rx_messages: AtomicU64::new(0),
             tx_bytes: AtomicU64::new(0),
@@ -98,19 +100,28 @@ impl TrafficMonitor {
 pub(super) struct PeerMonitor {
     handshake: HandshakeMonitor,
     traffic: TrafficMonitor,
+    persistent_keepalive_interval: Option<Duration>,
 }
 
 impl PeerMonitor {
-    pub fn new() -> Self {
+    pub fn new(persistent_keepalive_interval: Option<Duration>) -> Self {
         Self {
             handshake: HandshakeMonitor::new(),
             traffic: TrafficMonitor::new(),
+            persistent_keepalive_interval,
         }
     }
 
     #[inline]
     pub fn can_keepalive(&self) -> bool {
-        self.traffic.last_sent_at.elapsed() >= KEEPALIVE_TIMEOUT
+        if self.traffic.last_recv_at.to_std() > self.traffic.last_sent_at.to_std()
+            && self.traffic.last_recv_at.elapsed() >= KEEPALIVE_TIMEOUT
+        {
+            return true;
+        }
+        self.persistent_keepalive_interval
+            .map(|v| self.traffic.last_sent_at.elapsed() >= v)
+            .unwrap_or(false)
     }
 
     #[inline]

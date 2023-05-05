@@ -14,6 +14,7 @@ pub(crate) use session::Session;
 
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::RwLock;
+use std::time::Duration;
 
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
@@ -91,10 +92,11 @@ where
         endpoint: Option<Endpoint<I>>,
         inbound: InboundTx<I>,
         outbound: OutboundTx,
+        persitent_keepalive_interval: Option<Duration>,
     ) -> Self {
         let handshake = RwLock::new(Handshake::new(secret.clone(), session_index.clone()));
         let sessions = RwLock::new(ActiveSession::new(session_index));
-        let monitor = PeerMonitor::new();
+        let monitor = PeerMonitor::new(persitent_keepalive_interval);
         let endpoint = RwLock::new(endpoint);
         Self {
             tun,
