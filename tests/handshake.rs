@@ -116,8 +116,7 @@ async fn test_complete_handshake() {
             .peer(
                 PeerConfig::default()
                     .public_key(secret1.public_key().to_bytes())
-                    .allowed_ip(endpoint1.ip())
-                    .endpoint(endpoint1),
+                    .allowed_ip(endpoint1.ip()),
             );
         let device = Device::with_transport(tun.clone(), transport.clone(), cfg)
             .await
@@ -174,5 +173,5 @@ async fn test_complete_handshake() {
     }
 
     assert!(d1_completed);
-    assert!(d2_completed);
+    assert!(!d2_completed);
 }
