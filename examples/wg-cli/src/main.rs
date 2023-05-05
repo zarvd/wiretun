@@ -42,7 +42,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             PeerConfig::default()
                 .public_key(peer_public_key())
                 .endpoint("0.0.0.0:51871".parse()?)
-                .allowed_ip("10.0.0.2".parse::<Cidr>()?),
+                .allowed_ip("10.0.0.2".parse::<Cidr>()?)
+                .persistent_keepalive(Duration::from_secs(5)),
         );
 
     let device = Device::native("utun88", cfg).await?;

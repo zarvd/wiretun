@@ -129,9 +129,12 @@ where
     /// Send keepalive packet to the peer if the traffic is idle.
     #[inline]
     pub async fn keepalive(&self) {
-        if !self.monitor.can_keepalive() {
+        if !self.monitor.keepalive().can(self.monitor.traffic()) {
+            debug!("{self} not able to send keepalive");
             return;
         }
+        self.monitor.keepalive().attempt();
+        debug!("{self} sending keepalive");
         self.stage_outbound(vec![]).await;
     }
 

@@ -7,7 +7,7 @@ use tokio::time;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
-use super::{monitor, InboundEvent, InboundRx, OutboundEvent, OutboundRx, Peer, Session};
+use super::{InboundEvent, InboundRx, OutboundEvent, OutboundRx, Peer, Session};
 use crate::device::{Endpoint, Transport};
 use crate::noise::handshake::IncomingInitiation;
 use crate::noise::protocol::{
@@ -110,7 +110,7 @@ where
     loop {
         tokio::select! {
             _ = token.cancelled() => break,
-            _ = time::sleep(monitor::KEEPALIVE_TIMEOUT) => {
+            _ = time::sleep_until(peer.monitor.keepalive().next_attempt_in(peer.monitor.traffic()).into()) => {
                 peer.keepalive().await;
             }
             event = rx.recv() => {
