@@ -81,17 +81,6 @@ impl AtomicInstant {
     }
 
     #[inline(always)]
-    pub fn before(&self, other: Instant) -> bool {
-        self.to_std() < other
-    }
-
-    #[inline(always)]
-    #[allow(unused)]
-    pub fn after(&self, other: Instant) -> bool {
-        self.to_std() > other
-    }
-
-    #[inline(always)]
     pub fn set_now(&self) {
         self.d
             .store(self.epoch.elapsed().as_millis() as _, Ordering::Relaxed);
@@ -135,6 +124,26 @@ impl Add<Duration> for AtomicInstant {
     }
 }
 
+impl Eq for AtomicInstant {}
+
+impl PartialEq<Self> for AtomicInstant {
+    fn eq(&self, other: &Self) -> bool {
+        self.to_std().eq(&other.to_std())
+    }
+}
+
+impl PartialOrd<Self> for AtomicInstant {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.to_std().partial_cmp(&other.to_std())
+    }
+}
+
+impl Ord for AtomicInstant {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.to_std().cmp(&other.to_std())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,9 +164,8 @@ mod tests {
         let now = now + Duration::from_secs(1);
         instant.add_duration(Duration::from_secs(1));
         assert_eq!(instant.to_std(), now);
-        assert!(!instant.before(now));
-        assert!(!instant.after(now));
-        assert!(instant.before(now + Duration::from_secs(1)));
-        assert!(instant.after(now - Duration::from_secs(1)));
+        assert!(instant.to_std() >= now);
+        assert!(instant.to_std() < now + Duration::from_secs(1));
+        assert!(instant.to_std() > now - Duration::from_secs(1));
     }
 }
