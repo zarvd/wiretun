@@ -74,22 +74,18 @@ impl AtomicInstant {
 
     #[inline(always)]
     pub fn now() -> Self {
-        Self {
-            epoch: Instant::now(),
-            d: AtomicU64::new(0),
-        }
+        Self::from_std(Instant::now())
     }
 
     #[inline(always)]
     pub fn set_now(&self) {
-        self.d
-            .store(self.epoch.elapsed().as_millis() as _, Ordering::Relaxed);
+        let elpased = self.epoch.elapsed();
+        self.d.store(elpased.as_millis() as _, Ordering::Relaxed);
     }
 
     #[inline(always)]
     pub fn add_duration(&self, d: Duration) {
-        let d = (self.epoch.elapsed() + d).as_millis();
-        self.d.store(d as _, Ordering::Relaxed);
+        self.d.fetch_add(d.as_millis() as _, Ordering::Relaxed);
     }
 
     #[inline(always)]
@@ -164,8 +160,5 @@ mod tests {
         let now = now + Duration::from_secs(1);
         instant.add_duration(Duration::from_secs(1));
         assert_eq!(instant.to_std(), now);
-        assert!(instant.to_std() >= now);
-        assert!(instant.to_std() < now + Duration::from_secs(1));
-        assert!(instant.to_std() > now - Duration::from_secs(1));
     }
 }

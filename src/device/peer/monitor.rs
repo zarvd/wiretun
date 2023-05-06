@@ -51,6 +51,7 @@ impl HandshakeMonitor {
 
     #[inline]
     pub fn reset_attempt(&self) {
+        self.attempt_before.set_now();
         self.attempt_before.add_duration(REKEY_ATTEMPT_TIME);
     }
 
