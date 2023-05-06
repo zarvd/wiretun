@@ -74,10 +74,7 @@ impl AtomicInstant {
 
     #[inline(always)]
     pub fn now() -> Self {
-        Self {
-            epoch: Instant::now(),
-            d: AtomicU64::new(0),
-        }
+        Self::from_std(Instant::now())
     }
 
     #[inline(always)]
@@ -163,8 +160,5 @@ mod tests {
         let now = now + Duration::from_secs(1);
         instant.add_duration(Duration::from_secs(1));
         assert_eq!(instant.to_std(), now);
-        assert!(instant.to_std() == now);
-        assert!(instant.to_std() < now + Duration::from_secs(1));
-        assert!(instant.to_std() > now - Duration::from_secs(1));
     }
 }
