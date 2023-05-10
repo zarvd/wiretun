@@ -12,7 +12,7 @@ This library provides a cross-platform, asynchronous (with [Tokio](https://tokio
 
 ```toml
 [dependencies]
-wiretun = { version = "0.1", features = ["uapi"] }
+wiretun = { version = "*", features = ["uapi"] }
 ```
 
 ## Example
