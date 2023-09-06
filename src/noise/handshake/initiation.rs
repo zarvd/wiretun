@@ -1,7 +1,7 @@
 use bytes::{BufMut, BytesMut};
 
 use super::{MacGenerator, CONSTRUCTION, IDENTIFIER};
-use crate::noise::crypto::{EphermealPrivateKey, LocalStaticSecret, PeerStaticSecret, PublicKey};
+use crate::noise::crypto::{EphemeralPrivateKey, LocalStaticSecret, PeerStaticSecret, PublicKey};
 use crate::noise::protocol::HandshakeInitiation;
 use crate::noise::{
     crypto::{aead_decrypt, aead_encrypt, gen_ephemeral_key, hash, kdf1, kdf2},
@@ -16,7 +16,7 @@ pub struct OutgoingInitiation {
     pub index: u32,
     pub hash: [u8; 32],
     pub chaining_key: [u8; 32],
-    pub ephemeral_private_key: EphermealPrivateKey,
+    pub ephemeral_private_key: EphemeralPrivateKey,
 }
 
 impl OutgoingInitiation {

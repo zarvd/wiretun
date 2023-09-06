@@ -8,7 +8,7 @@ use super::Error;
 
 pub type PrivateKey = x25519_dalek::StaticSecret;
 pub type PublicKey = x25519_dalek::PublicKey;
-pub type EphermealPrivateKey = x25519_dalek::ReusableSecret;
+pub type EphemeralPrivateKey = x25519_dalek::ReusableSecret;
 
 pub fn encode_to_hex(key: &[u8]) -> String {
     use std::fmt::Write;
@@ -105,8 +105,8 @@ impl PeerStaticSecret {
 }
 
 #[inline]
-pub fn gen_ephemeral_key() -> (EphermealPrivateKey, PublicKey) {
-    let secret = EphermealPrivateKey::random_from_rng(OsRng);
+pub fn gen_ephemeral_key() -> (EphemeralPrivateKey, PublicKey) {
+    let secret = EphemeralPrivateKey::random_from_rng(OsRng);
     let public = PublicKey::from(&secret);
     (secret, public)
 }
