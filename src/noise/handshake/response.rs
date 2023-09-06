@@ -4,7 +4,7 @@ use super::{IncomingInitiation, MacGenerator, OutgoingInitiation};
 use crate::noise::protocol::HandshakeResponse;
 use crate::noise::{
     crypto::{
-        aead_decrypt, aead_encrypt, gen_ephemeral_key, hash, kdf1, kdf3, EphermealPrivateKey,
+        aead_decrypt, aead_encrypt, gen_ephemeral_key, hash, kdf1, kdf3, EphemeralPrivateKey,
         PeerStaticSecret, PublicKey,
     },
     Error,
@@ -16,7 +16,7 @@ const PACKET_SIZE: usize = 92;
 pub struct OutgoingResponse {
     pub hash: [u8; 32],
     pub chaining_key: [u8; 32],
-    pub ephemeral_private_key: EphermealPrivateKey,
+    pub ephemeral_private_key: EphemeralPrivateKey,
 }
 
 impl OutgoingResponse {
