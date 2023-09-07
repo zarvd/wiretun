@@ -20,21 +20,21 @@ libc = "0.2"
 nix = "0.26"
 socket2 = "0.5"
 bytes = "1.4"
-regex = "1.7"
+regex = "1.9"
 rand_core = "0.6"
 anyhow = "1.0"
 thiserror = "1.0"
 tracing = "0.1"
 futures = "0.3"
 async-trait = "0.1"
-tokio = { version = "1.28", features = ["full"] }
+tokio = { version = "1.32", features = ["full"] }
 tokio-util = "0.7"
 chacha20poly1305 = "0.10"
-x25519-dalek = { version = "2.0.0-rc.2", features = ["reusable_secrets", "static_secrets"] }
+x25519-dalek = { version = "2.0", features = ["reusable_secrets", "static_secrets"] }
 blake2 = "0.10"
 hmac = "0.12"
-ip_network = "0.4.1"
-ip_network_table = "0.2.0"
+ip_network = "0.4"
+ip_network_table = "0.2"
 
 [dev-dependencies]
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
