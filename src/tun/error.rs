@@ -10,6 +10,4 @@ pub enum Error {
     InvalidIpPacket,
     #[error("tun closed")]
     Closed,
-    #[error("invalid flag bits")]
-    InvalidFlagBits,
 }
