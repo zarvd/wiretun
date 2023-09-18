@@ -1,5 +1,5 @@
 use std::mem;
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+use std::os::fd::{AsRawFd, RawFd};
 
 use libc::{__c_anonymous_ifr_ifru, c_char, ifreq};
 use nix::fcntl::{fcntl, FcntlArg, OFlag};
@@ -22,7 +22,7 @@ pub fn new_ifreq(name: &str) -> ifreq {
 
 pub fn set_nonblocking(fd: RawFd) -> Result<(), Error> {
     let flag = fcntl(fd, FcntlArg::F_GETFL)
-        .map(|flag| unsafe { OFlag::from_bits_unchecked(flag) })
+        .map(OFlag::from_bits_retain)
         .map_err(Error::Sys)?;
     let flag = OFlag::O_NONBLOCK | flag;
     fcntl(fd, FcntlArg::F_SETFL(flag)).map_err(Error::Sys)?;
@@ -36,7 +36,6 @@ pub fn set_mtu(name: &str, mtu: u16) -> Result<(), Error> {
         SockFlag::empty(),
         None,
     )
-    .map(|fd| unsafe { OwnedFd::from_raw_fd(fd) })
     .map_err(Error::Sys)?;
     let mut ifr = new_ifreq(name);
     ifr.ifr_ifru = __c_anonymous_ifr_ifru { ifru_mtu: mtu as _ };
@@ -51,7 +50,6 @@ pub fn get_mtu(name: &str) -> Result<u16, Error> {
         SockFlag::empty(),
         None,
     )
-    .map(|fd| unsafe { OwnedFd::from_raw_fd(fd) })
     .map_err(Error::Sys)?;
     let mut ifr = new_ifreq(name);
     unsafe { ioctl_get_mtu(fd.as_raw_fd(), &mut ifr) }.map_err(Error::Sys)?;

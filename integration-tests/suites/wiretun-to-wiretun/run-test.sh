@@ -41,6 +41,7 @@ start_peer1() {
   echo "Peer1 PID: ${PID}"
 
   sleep 5
+  cat ${PEER1_LOG}
   wg set ${PEER1_NAME} \
     peer ${PEER2_PUB} \
     endpoint 0.0.0.0:${PEER2_LISTEN_PORT} \
@@ -70,6 +71,7 @@ start_peer2() {
   echo "Peer2 PID: ${PID}"
 
   sleep 5
+  cat ${PEER2_LOG}
   wg set ${PEER2_NAME} \
     peer ${PEER1_PUB} \
     endpoint 0.0.0.0:${PEER1_LISTEN_PORT} \
