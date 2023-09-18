@@ -93,8 +93,9 @@ impl ifreq {
 
 pub fn set_nonblocking(fd: RawFd) -> Result<(), Error> {
     let flag = fcntl(fd, FcntlArg::F_GETFL)
-        .map(|flag| unsafe { OFlag::from_bits_unchecked(flag) })
-        .map_err(Error::Sys)?;
+        .map(|flag| OFlag::from_bits(flag))
+        .map_err(Error::Sys)?
+        .ok_or(Error::InvalidFlagBits)?;
     let flag = OFlag::O_NONBLOCK | flag;
     fcntl(fd, FcntlArg::F_SETFL(flag)).map_err(Error::Sys)?;
     Ok(())
