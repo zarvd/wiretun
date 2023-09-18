@@ -17,7 +17,7 @@ uapi = []
 
 [dependencies]
 libc = "0.2"
-nix = { version = "0.27", features = ["fs", "ioctl"] }
+nix = { version = "0.27", features = ["fs", "ioctl", "socket"] }
 socket2 = "0.5"
 bytes = "1.5"
 regex = "1.9"
