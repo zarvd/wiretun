@@ -2,10 +2,10 @@
 name = "wiretun"
 description = "WireGuard Library"
 version = "0.5.0"
-authors = ["lodrem <jialun.cai@pm.me>"]
+authors = ["zarvd <jialun.cai@pm.me>"]
 keywords = ["wireguard", "networking"]
-repository = "https://github.com/lodrem/wiretun"
-homepage = "https://github.com/lodrem/wiretun"
+repository = "https://github.com/zarvd/wiretun"
+homepage = "https://github.com/zarvd/wiretun"
 documentation = "https://docs.rs/wiretun"
 license = "Apache-2.0"
 edition = "2021"
@@ -17,17 +17,17 @@ uapi = []
 
 [dependencies]
 libc = "0.2"
-nix = { version = "0.27", features = ["fs", "ioctl", "socket"] }
+nix = { version = "0.28", features = ["fs", "ioctl", "socket"] }
 socket2 = "0.5"
-bytes = "1.5"
-regex = "1.9"
+bytes = "1.6"
+regex = "1.10"
 rand_core = "0.6"
 anyhow = "1.0"
 thiserror = "1.0"
 tracing = "0.1"
 futures = "0.3"
 async-trait = "0.1"
-tokio = { version = "1.32", features = ["full"] }
+tokio = { version = "1.37", features = ["full"] }
 tokio-util = "0.7"
 chacha20poly1305 = "0.10"
 x25519-dalek = { version = "2.0", features = ["reusable_secrets", "static_secrets"] }

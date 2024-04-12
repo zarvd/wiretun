@@ -11,7 +11,7 @@ pub use config::{DeviceConfig, PeerConfig};
 pub use error::Error;
 pub use inbound::{Endpoint, Transport, UdpTransport};
 pub use metrics::DeviceMetrics;
-pub use peer::{Cidr, ParseCidrError, PeerMetrics};
+pub use peer::{Cidr, ParseCidrError};
 
 use std::collections::HashSet;
 use std::net::SocketAddr;
