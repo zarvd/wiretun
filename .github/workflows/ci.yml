@@ -16,15 +16,14 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Install rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
           components: clippy
-          override: true
       - name: Install just
-        uses: extractions/setup-just@v1
+        uses: extractions/setup-just@v2
       - name: Run lint
         run: |
           just lint
@@ -35,20 +34,16 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Install rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
           components: clippy
-          override: true
       - name: Install just
-        uses: extractions/setup-just@v1
+        uses: extractions/setup-just@v2
       - name: Install cargo-nextest
-        uses: baptiste0928/cargo-install@v1
-        with:
-          crate: cargo-nextest
-          locked: true
+        uses: taiki-e/install-action@nextest
       - name: Run tests
         run: |
           just unit-test
@@ -63,15 +58,14 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Install rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
           components: clippy
-          override: true
       - name: Install just
-        uses: extractions/setup-just@v1
+        uses: extractions/setup-just@v2
       - name: Install WireGuard tools (Linux)
         if: runner.os == 'Linux'
         run: |

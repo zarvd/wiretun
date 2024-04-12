@@ -130,7 +130,7 @@ impl PartialEq<Self> for AtomicInstant {
 
 impl PartialOrd<Self> for AtomicInstant {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.to_std().partial_cmp(&other.to_std())
+        Some(self.cmp(other))
     }
 }
 

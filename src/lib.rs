@@ -1,3 +1,4 @@
+#![allow(clippy::map_clone)] // FIXME: Not working properly, fixed in v1.78
 #![deny(
     warnings,
     rust_2018_idioms,
