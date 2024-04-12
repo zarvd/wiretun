@@ -6,6 +6,6 @@ publish = false
 
 [dependencies]
 wiretun = { path = "../../../", features = ["uapi"] }
-tokio = { version = "1.27", features = ["full"] }
+tokio = { version = "1.37", features = ["full"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing = "0.1"
