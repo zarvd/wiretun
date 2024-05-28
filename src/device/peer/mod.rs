@@ -39,7 +39,7 @@ pub(crate) enum InboundEvent<I>
 where
     I: Transport,
 {
-    HanshakeInitiation {
+    HandshakeInitiation {
         endpoint: Endpoint<I>,
         initiation: IncomingInitiation,
     },

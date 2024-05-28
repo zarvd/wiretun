@@ -176,7 +176,7 @@ where
     I: Transport,
 {
     match event {
-        InboundEvent::HanshakeInitiation {
+        InboundEvent::HandshakeInitiation {
             endpoint,
             initiation,
         } => inbound::handle_handshake_initiation(Arc::clone(&peer), endpoint, initiation).await,
