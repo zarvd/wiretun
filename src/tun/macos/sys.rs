@@ -44,13 +44,6 @@ pub struct ifdevmtu {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
-pub union ifku {
-    pub ptr: *mut c_void,
-    pub value: c_int,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
 pub union ifru {
     pub addr: sockaddr,
     pub dstaddr: sockaddr,

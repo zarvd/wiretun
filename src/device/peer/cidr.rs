@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter};
 use std::hash::{Hash, Hasher};
 use std::net::IpAddr;
 use std::str::FromStr;
@@ -39,9 +40,9 @@ impl Cidr {
     }
 }
 
-impl ToString for Cidr {
-    fn to_string(&self) -> String {
-        format!("{}/{}", self.0.network_address(), self.0.netmask())
+impl Display for Cidr {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.0.network_address(), self.0.netmask())
     }
 }
 
