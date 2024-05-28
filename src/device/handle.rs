@@ -163,7 +163,7 @@ async fn tick_inbound<T, I>(
         Ok(Message::HandshakeInitiation(p)) => {
             let initiation = IncomingInitiation::parse(secret, &p).unwrap_or_else(|_| todo!());
             if let Some(peer) = inner.get_peer_by_key(initiation.static_public_key.as_bytes()) {
-                peer.handle_inbound(InboundEvent::HanshakeInitiation {
+                peer.handle_inbound(InboundEvent::HandshakeInitiation {
                     endpoint,
                     initiation,
                 })
